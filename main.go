@@ -1,19 +1,18 @@
-// Command tfforge is an AI agent that builds and analyzes Terraform — with a
-// safety layer. It reasons over your infrastructure (plan, analyze, and soon
-// build), but every destructive action passes through policy-as-code guards and
-// is traced, so the agent can help without being able to wreck production.
-//
-// This first cut is the bare agentic loop with a single read-only tool
-// (terraform_plan), so you can watch an agent reason end-to-end. The guard,
-// security scanning (tfsec/checkov), and build tools land in the next steps.
+// Command tfforge is an AI agent that BUILDS, validates, and secures Terraform —
+// with a safety layer it can't bypass. It can generate infrastructure code
+// itself, validate it, scan it for security issues (checkov/trivy/tfsec plus
+// provider-aware checks), and auto-correct until it's clean — while every
+// destructive action passes through policy-as-code guards, so the agent can help
+// without being able to wreck production.
 //
 // Usage:
 //
-//	export ANTHROPIC_API_KEY=...      # from console.anthropic.com (billed per token)
-//	tfforge "analyze the plan in ./examples/staging and explain the impact"
+//	export ANTHROPIC_API_KEY=...   # from console.anthropic.com (billed per token)
+//	tfforge "build a private, encrypted S3 bucket in ./examples/demo, scan it, and fix any findings"
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -21,23 +20,40 @@ import (
 	"strings"
 	"syscall"
 
-	"bufio"
-
 	"github.com/Mrg77/tfforge/internal/agent"
 	"github.com/Mrg77/tfforge/internal/anthropic"
 	"github.com/Mrg77/tfforge/internal/guard"
 	"github.com/Mrg77/tfforge/internal/tools"
 )
 
-const systemPrompt = `You are tfforge, an AI agent for Terraform infrastructure.
-You help a DevOps engineer understand, analyze, and safely change Terraform.
+const systemPrompt = `You are tfforge, an AI agent that BUILDS, validates, and secures
+Terraform infrastructure for a DevOps engineer — and does so safely.
+
+You can write Terraform code yourself and iterate on it. When asked to build or fix
+infrastructure, follow this loop until the result is clean:
+
+  1. GENERATE — write the Terraform to write_file (idiomatic HCL, sensible defaults,
+     security-first: private by default, encryption on, least-privilege IAM).
+  2. VALIDATE — run terraform_validate. If it fails, fix the code and re-validate.
+  3. SECURE — run security_scan (checkov/trivy/tfsec + provider-aware checks).
+  4. AUTO-CORRECT — if the scan reports findings, REWRITE the code to fix them
+     (write_file again) and scan AGAIN. Repeat until the scan is clean or only
+     acceptable, explicitly-justified findings remain.
+  5. PLAN — run terraform_plan to show what would be created/changed.
+  6. Only apply/destroy if explicitly asked; those pass through the safety policy.
+
+Security defaults you always apply when generating code:
+  - S3: private ACL + public-access block + server-side encryption.
+  - IAM: never Action "*" or Resource "*" — scope to what's needed.
+  - Databases/volumes: encryption at rest on.
+  - Never hard-code secrets in .tf — use variables.
 
 Principles:
-- Understand before acting: run terraform_plan to see real impact before proposing anything.
-- Be precise and concise. Lead with the verdict, then the reasoning.
-- You operate under a safety guard: destructive actions may be blocked by policy.
-  If a tool is BLOCKED, do not retry it — explain the situation and propose a safer path.
-- Never invent resource names, values, or plan output — only report what the tools return.`
+  - Understand before acting; be precise and concise; lead with the verdict.
+  - You operate under a safety guard: destructive actions may be blocked by policy.
+    If a tool is BLOCKED, do not retry it — explain and propose a safer path.
+  - Never invent tool output — only report what the tools actually return. When you
+    fix a finding, say which finding and how you fixed it.`
 
 func main() {
 	if len(os.Args) < 2 || strings.TrimSpace(strings.Join(os.Args[1:], " ")) == "" {
@@ -60,11 +76,15 @@ func main() {
 		tools.SetProjectRoot(wd)
 	}
 
-	// The tool set: read-only analysis + guarded mutating/destructive actions.
+	// The tool set: generate + validate + scan (the build/secure loop), plus
+	// read-only analysis and guarded mutating/destructive actions.
 	toolset := []tools.Tool{
-		tools.PlanTool{},
-		tools.ApplyTool{},
-		tools.DestroyTool{},
+		tools.WriteFileTool{},    // generate & auto-correct code
+		tools.ValidateTool{},     // syntax gate
+		tools.SecurityScanTool{}, // checkov/trivy/tfsec + provider-aware
+		tools.PlanTool{},         // impact preview
+		tools.ApplyTool{},        // guarded
+		tools.DestroyTool{},      // guarded (deny on prod)
 	}
 
 	// The guard: policy-as-code (the same idea as opsforge's shell guards). The
@@ -78,7 +98,9 @@ func main() {
 	ag := agent.New(client, systemPrompt, toolset, g, nil, os.Stdout)
 
 	fmt.Printf("tfforge · model %s\n\n", client.Model())
-	if err := ag.Run(ctx, task, 12); err != nil {
+	// A build+validate+scan+autocorrect cycle can take several tool round-trips;
+	// give the loop room while still bounding it against runaway.
+	if err := ag.Run(ctx, task, 30); err != nil {
 		fmt.Fprintln(os.Stderr, "\ntfforge:", err)
 		os.Exit(1)
 	}
