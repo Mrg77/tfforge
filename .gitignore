@@ -1,0 +1,17 @@
+# Binaries
+/tfforge
+*.exe
+
+# Terraform working state — never commit
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+**/generated/
+
+# Env / secrets — never commit an API key
+.env
+*.local
+
+# OS / editor
+.DS_Store
