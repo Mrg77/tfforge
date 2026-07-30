@@ -21,8 +21,11 @@ import (
 	"strings"
 	"syscall"
 
+	"bufio"
+
 	"github.com/Mrg77/tfforge/internal/agent"
 	"github.com/Mrg77/tfforge/internal/anthropic"
+	"github.com/Mrg77/tfforge/internal/guard"
 	"github.com/Mrg77/tfforge/internal/tools"
 )
 
@@ -57,21 +60,44 @@ func main() {
 		tools.SetProjectRoot(wd)
 	}
 
-	// The tool set. Read-only for now; guarded mutating/destructive tools next.
+	// The tool set: read-only analysis + guarded mutating/destructive actions.
 	toolset := []tools.Tool{
 		tools.PlanTool{},
+		tools.ApplyTool{},
+		tools.DestroyTool{},
 	}
+
+	// The guard: policy-as-code (the same idea as opsforge's shell guards). The
+	// default policy denies destroy on prod and confirms apply on prod. A
+	// "confirm" prompts the human on the TTY; with no TTY it fails safe (deny).
+	g := guard.New(guard.Default(), ttyConfirm)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// No guard/tracer yet — this is the bare loop. They plug in next, and the
-	// loop already routes every tool call through the (currently allow-all) guard.
-	ag := agent.New(client, systemPrompt, toolset, nil, nil, os.Stdout)
+	ag := agent.New(client, systemPrompt, toolset, g, nil, os.Stdout)
 
 	fmt.Printf("tfforge · model %s\n\n", client.Model())
 	if err := ag.Run(ctx, task, 12); err != nil {
 		fmt.Fprintln(os.Stderr, "\ntfforge:", err)
 		os.Exit(1)
 	}
+}
+
+// ttyConfirm asks the human to approve a guarded action. If stdin isn't a
+// terminal (CI, a pipe), it returns false — fail-safe: never auto-approve a
+// mutating/destructive action without a human.
+func ttyConfirm(action, ctx, message string) bool {
+	fmt.Fprintf(os.Stderr, "\n⚠  The agent wants to run: %s", action)
+	if ctx != "" {
+		fmt.Fprintf(os.Stderr, "  (context: %s)", ctx)
+	}
+	fmt.Fprintf(os.Stderr, "\n   %s\n   Proceed? [y/N] ", message)
+
+	sc := bufio.NewScanner(os.Stdin)
+	if !sc.Scan() {
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(sc.Text()))
+	return answer == "y" || answer == "yes"
 }

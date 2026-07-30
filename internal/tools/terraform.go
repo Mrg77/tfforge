@@ -115,3 +115,64 @@ func (PlanTool) Run(ctx context.Context, input json.RawMessage) (string, error) 
 	// -input=false so it never blocks on a prompt; -no-color for clean text.
 	return runTerraform(ctx, dir, "plan", "-input=false", "-no-color")
 }
+
+// --- terraform_apply: MUTATING. Creates/updates real resources. Guarded. ------
+
+// ApplyTool runs `terraform apply -auto-approve`. It is mutating, so it goes
+// through the guard (which confirms on prod). The agent never bypasses that —
+// the loop routes every tool through the guard before Run is called.
+type ApplyTool struct{}
+
+func (ApplyTool) Name() string   { return "terraform_apply" }
+func (ApplyTool) Danger() Danger { return Mutating }
+func (ApplyTool) Description() string {
+	return "Run `terraform apply` in a working directory to create or update real infrastructure. " +
+		"MUTATING: this changes real resources. It is subject to the safety policy and may require approval."
+}
+func (ApplyTool) Schema() map[string]any {
+	return dirSchema("Apply the Terraform configuration in a working directory.")
+}
+func (ApplyTool) Run(ctx context.Context, input json.RawMessage) (string, error) {
+	var in dirInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if in.Dir == "" {
+		return "", fmt.Errorf("dir is required")
+	}
+	dir, err := confine(in.Dir)
+	if err != nil {
+		return "", err
+	}
+	return runTerraform(ctx, dir, "apply", "-input=false", "-no-color", "-auto-approve")
+}
+
+// --- terraform_destroy: DESTRUCTIVE. Tears infra down. Guarded (deny on prod). -
+
+// DestroyTool runs `terraform destroy -auto-approve`. Destructive: the default
+// policy DENIES it on a production context and confirms it elsewhere.
+type DestroyTool struct{}
+
+func (DestroyTool) Name() string   { return "terraform_destroy" }
+func (DestroyTool) Danger() Danger { return Destructive }
+func (DestroyTool) Description() string {
+	return "Run `terraform destroy` in a working directory to tear down infrastructure. " +
+		"DESTRUCTIVE: this deletes real resources. It is blocked on production contexts by the safety policy."
+}
+func (DestroyTool) Schema() map[string]any {
+	return dirSchema("Destroy the infrastructure managed in a working directory.")
+}
+func (DestroyTool) Run(ctx context.Context, input json.RawMessage) (string, error) {
+	var in dirInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if in.Dir == "" {
+		return "", fmt.Errorf("dir is required")
+	}
+	dir, err := confine(in.Dir)
+	if err != nil {
+		return "", err
+	}
+	return runTerraform(ctx, dir, "destroy", "-input=false", "-no-color", "-auto-approve")
+}
