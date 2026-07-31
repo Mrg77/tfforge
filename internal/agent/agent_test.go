@@ -42,9 +42,18 @@ func (t *fakeTool) Run(context.Context, json.RawMessage) (string, error) {
 	return t.result, nil
 }
 
-// recordingTracer captures decisions for assertions.
-type recordingTracer struct{ decisions []string }
+// recordingTracer captures decisions and token totals for assertions.
+type recordingTracer struct {
+	decisions     []string
+	turns         int
+	inTok, outTok int
+}
 
+func (r *recordingTracer) Turn(in, out int) {
+	r.turns++
+	r.inTok += in
+	r.outTok += out
+}
 func (r *recordingTracer) ToolCall(_ string, _ tools.Danger, decision, _ string) {
 	r.decisions = append(r.decisions, decision)
 }

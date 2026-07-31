@@ -24,6 +24,7 @@ import (
 	"github.com/Mrg77/tfforge/internal/anthropic"
 	"github.com/Mrg77/tfforge/internal/guard"
 	"github.com/Mrg77/tfforge/internal/tools"
+	"github.com/Mrg77/tfforge/internal/trace"
 )
 
 const systemPrompt = `You are tfforge, an AI agent that BUILDS, validates, and secures
@@ -95,17 +96,45 @@ func main() {
 	// "confirm" prompts the human on the TTY; with no TTY it fails safe (deny).
 	g := guard.New(guard.Default(), ttyConfirm)
 
+	// The tracer: an audit log (every turn + tool + guard decision, JSONL) and
+	// run cost accounting. This is the LLMOps layer — reviewability + spend
+	// visibility. Set TFFORGE_AUDIT=off to skip the file (summary still prints).
+	tr, err := trace.New(client.Model(), auditLogPath())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "tfforge: could not open audit log:", err)
+		os.Exit(1)
+	}
+	defer tr.Close()
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	ag := agent.New(client, systemPrompt, toolset, g, nil, os.Stdout)
+	ag := agent.New(client, systemPrompt, toolset, g, tr, os.Stdout)
 
 	fmt.Printf("tfforge · model %s\n\n", client.Model())
 	// A build+validate+scan+autocorrect cycle can take several tool round-trips;
 	// give the loop room while still bounding it against runaway.
-	if err := ag.Run(ctx, task, 30); err != nil {
-		fmt.Fprintln(os.Stderr, "\ntfforge:", err)
+	runErr := ag.Run(ctx, task, 30)
+
+	// Always print the run summary (turns, tokens, guard actions, cost) — even
+	// on error, so a failed run's spend is still visible.
+	fmt.Fprintln(os.Stderr, "\n"+tr.Summary())
+	if runErr != nil {
+		fmt.Fprintln(os.Stderr, "tfforge:", runErr)
 		os.Exit(1)
+	}
+}
+
+// auditLogPath returns the audit-log destination, or "" when disabled via
+// TFFORGE_AUDIT=off (or an explicit path via TFFORGE_AUDIT=/some/file).
+func auditLogPath() string {
+	switch v := os.Getenv("TFFORGE_AUDIT"); v {
+	case "off", "0", "false":
+		return ""
+	case "":
+		return trace.DefaultLogPath()
+	default:
+		return v
 	}
 }
 

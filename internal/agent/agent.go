@@ -43,10 +43,14 @@ type Guard interface {
 	Check(t tools.Tool, input json.RawMessage) (Decision, string)
 }
 
-// Tracer records every tool call and guard decision — the audit trail that
-// makes the agent reviewable. A no-op tracer is fine for a first run.
+// Tracer records what the agent did — the audit trail + cost accounting that
+// make an agent reviewable and its spend visible (a real LLMOps concern). A
+// no-op tracer is fine for a bare run.
 type Tracer interface {
-	ToolCall(tool string, danger tools.Danger, decision string, reason string)
+	// Turn records one model round-trip's token usage.
+	Turn(inputTokens, outputTokens int)
+	// ToolCall records a tool invocation and the guard's decision on it.
+	ToolCall(tool string, danger tools.Danger, decision, reason string)
 }
 
 // LLM is the single primitive the loop needs from a model client: send
@@ -101,6 +105,7 @@ func (a *Agent) Run(ctx context.Context, task string, maxTurns int) error {
 		if err != nil {
 			return err
 		}
+		a.tracer.Turn(resp.Usage.InputTokens, resp.Usage.OutputTokens)
 
 		// Echo any assistant text, and collect tool_use blocks to run.
 		var toolUses []anthropic.ContentBlock
@@ -190,4 +195,5 @@ func (allowAll) Check(tools.Tool, json.RawMessage) (Decision, string) {
 
 type noopTracer struct{}
 
+func (noopTracer) Turn(int, int)                                 {}
 func (noopTracer) ToolCall(string, tools.Danger, string, string) {}
