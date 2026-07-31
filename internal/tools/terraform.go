@@ -4,10 +4,32 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/term"
+
+	"github.com/Mrg77/tfforge/internal/plan"
 )
+
+// planOut is where PlanTool prints its human-facing table. Defaults to stderr
+// so it never contaminates anything on stdout; main can point it at os.Stdout.
+var planOut io.Writer = os.Stderr
+
+// SetPlanOutput sets where the plan table is rendered for the human.
+func SetPlanOutput(w io.Writer) { planOut = w }
+
+// colorEnabled reports whether to colorize (a TTY and NO_COLOR unset).
+func colorEnabled() bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	f, ok := planOut.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}
 
 // projectRoot is the directory tfforge is allowed to operate within. All
 // tool-provided `dir` paths are confined under it, so a model (or a
@@ -112,8 +134,40 @@ func (PlanTool) Run(ctx context.Context, input json.RawMessage) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	// -input=false so it never blocks on a prompt; -no-color for clean text.
-	return runTerraform(ctx, dir, "plan", "-input=false", "-no-color")
+
+	// Ensure providers are available (offline init is safe/idempotent).
+	if out, err := runTerraform(ctx, dir, "init", "-input=false", "-no-color", "-backend=false"); err != nil {
+		return out, fmt.Errorf("terraform init (for plan) failed: %w", err)
+	}
+
+	// Produce a machine-readable plan: write a binary plan, then show it as JSON.
+	// This lets us render a clean table for the human and hand the agent only a
+	// compact digest — the key to scaling to a large repo.
+	planFile := filepath.Join(dir, ".tfforge.plan")
+	defer os.Remove(planFile)
+	if out, err := runTerraform(ctx, dir, "plan", "-input=false", "-no-color", "-out=.tfforge.plan"); err != nil {
+		return out, err // plan itself failed (e.g. a config error) — surface it
+	}
+	jsonOut, err := runTerraform(ctx, dir, "show", "-json", ".tfforge.plan")
+	if err != nil {
+		// Rare (show -json has existed since terraform 0.12): fall back to the
+		// human-readable plan text. If that ALSO fails, surface the error rather
+		// than hand the agent an empty string with no signal.
+		txt, ferr := runTerraform(ctx, dir, "plan", "-input=false", "-no-color")
+		if ferr != nil {
+			return txt, fmt.Errorf("plan produced, but reading it failed: %w", ferr)
+		}
+		return txt, nil
+	}
+
+	summary, err := plan.Parse([]byte(jsonOut))
+	if err != nil {
+		return jsonOut, nil // hand the raw JSON to the agent rather than fail
+	}
+
+	// Pretty table for the human (on planOut), compact digest for the agent.
+	fmt.Fprintln(planOut, summary.Table(40, colorEnabled()))
+	return summary.Digest(), nil
 }
 
 // --- terraform_apply: MUTATING. Creates/updates real resources. Guarded. ------

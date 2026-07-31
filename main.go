@@ -75,6 +75,9 @@ func main() {
 	if wd, err := os.Getwd(); err == nil {
 		tools.SetProjectRoot(wd)
 	}
+	// Render the plan table for the human on stdout (the agent gets only a
+	// compact digest, so a huge plan doesn't blow the context or the token bill).
+	tools.SetPlanOutput(os.Stdout)
 
 	// The tool set: generate + validate + scan (the build/secure loop), plus
 	// read-only analysis and guarded mutating/destructive actions.
