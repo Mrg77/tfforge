@@ -2,6 +2,9 @@
 
 *Read this in [French](README.fr.md).*
 
+[![CI](https://github.com/Mrg77/tfforge/actions/workflows/ci.yml/badge.svg)](https://github.com/Mrg77/tfforge/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **An AI agent that builds, validates, and secures Terraform — with a safety layer it can't bypass.**
 
 tfforge writes Terraform code itself, validates it, scans it for security issues,
@@ -87,13 +90,21 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
   passes (a `s3:*` service wildcard, an account-wide S3 ARN, SSH open to
   `0.0.0.0/0`, `iam:PassRole` on `*`, a publicly-accessible DB).
 
+## Install
+
+```sh
+brew install mrg77/tap/tfforge      # macOS / Linux
+# or build from source:
+go build -o tfforge .
+```
+
 ## Run it
 
 ```sh
 # 1. An Anthropic API key — billed per token, separate from a Claude subscription.
 export ANTHROPIC_API_KEY=...        # https://console.anthropic.com
 
-# 2. Build
+# 2. Build (or use the brew install above)
 go build -o tfforge .
 
 # 3. Build + scan + auto-correct a secure S3 stack (the headline demo)

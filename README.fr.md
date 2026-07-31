@@ -92,13 +92,21 @@ rendent un agent digne de confiance.
   ARN S3 account-wide, du SSH ouvert à `0.0.0.0/0`, `iam:PassRole` sur `*`, une
   base publiquement accessible).
 
+## Installer
+
+```sh
+brew install mrg77/tap/tfforge      # macOS / Linux
+# ou depuis les sources :
+go build -o tfforge .
+```
+
 ## Le lancer
 
 ```sh
 # 1. Une clé API Anthropic — facturée au token, distincte d'un abonnement Claude.
 export ANTHROPIC_API_KEY=...        # https://console.anthropic.com
 
-# 2. Build
+# 2. Build (ou le brew install ci-dessus)
 go build -o tfforge .
 
 # 3. Construire + scanner + auto-corriger un stack S3 sécurisé (la démo phare)

@@ -57,18 +57,26 @@ Principles:
   - Never invent tool output — only report what the tools actually return. When you
     fix a finding, say which finding and how you fixed it.`
 
+// version is injected at build time by GoReleaser via ldflags; "dev" for a
+// plain `go build`.
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 || strings.TrimSpace(strings.Join(os.Args[1:], " ")) == "" {
 		fmt.Fprintln(os.Stderr, "usage:")
 		fmt.Fprintln(os.Stderr, "  tfforge \"<task>\"                 run the AI agent on a task (needs ANTHROPIC_API_KEY)")
 		fmt.Fprintln(os.Stderr, "  tfforge scan <dir> [--json]      deterministic security scan, no LLM — gates CI via exit code")
+		fmt.Fprintln(os.Stderr, "  tfforge version")
 		os.Exit(2)
 	}
 
-	// `scan` is the CI subcommand: deterministic, no LLM, no API key. It exits
-	// non-zero on findings so it can gate a pipeline. Everything else is a task
-	// for the agent.
-	if os.Args[1] == "scan" {
+	switch os.Args[1] {
+	case "version", "--version", "-v":
+		fmt.Println("tfforge", version)
+		return
+	case "scan":
+		// The CI subcommand: deterministic, no LLM, no API key. Exits non-zero
+		// on findings so it can gate a pipeline.
 		os.Exit(runScan(os.Args[2:]))
 	}
 
