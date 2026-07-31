@@ -1,0 +1,155 @@
+# tfforge
+
+*Read this in [English](README.md).*
+
+**Un agent IA qui construit, valide et sécurise du Terraform — avec une couche de garde qu'il ne peut pas contourner.**
+
+tfforge écrit le code Terraform lui-même, le valide, le scanne pour la sécurité,
+et **s'auto-corrige jusqu'à ce que ce soit propre** — pendant que chaque action
+destructrice passe par des **guards policy-as-code**, pour que l'agent aide sans
+pouvoir casser la production. Il est écrit **from scratch sur l'API Anthropic
+Messages** (sans framework), donc la boucle agentique est entièrement visible.
+
+> Pas un « LLM qui écrit du HCL » de plus. Le marché en est saturé. La valeur ici,
+> c'est la couche de **sécurité, fiabilité et auditabilité** autour d'un agent —
+> précisément ce sur quoi les équipes galèrent pour mettre un agent en production.
+
+## Pourquoi ce projet
+
+L'agentic AI en production est avant tout un problème d'**infrastructure et
+d'orchestration** : un agent qui appelle des outils, gère les erreurs, respecte
+des garde-fous, journalise chaque action, et dont on peut voir le coût. C'est du
+DevOps. tfforge en est une démonstration from-scratch, sur une tâche qu'un DevOps
+connaît intimement — Terraform — avec les enjeux de sécurité et de LLMOps qui
+rendent un agent digne de confiance.
+
+## Comment ça marche
+
+```
+  toi : « construis un bucket S3 privé et chiffré avec un IAM least-privilege,
+         scanne-le, et corrige ce que tu trouves »
+        │
+   1. GÉNÈRE ──────▶ l'agent écrit le Terraform lui-même (write_file)
+        │
+   2. VALIDE ──────▶ terraform_validate (on ne scanne pas du code qui ne parse pas)
+        │
+   3. SÉCURISE ────▶ security_scan : checkov / trivy / tfsec + checks
+        │             provider-aware (IAM wildcard, S3 public, chiffrement absent…)
+        │
+   4. AUTO-CORRIGE ▶ des findings ? l'agent RÉÉCRIT le code et re-scanne
+        │             (la boucle qui le rend vivant) — jusqu'à ce que ce soit propre
+        │
+   5. PLANIFIE ────▶ terraform_plan, rendu en tableau lisible
+        │
+   6. GARDE ───────▶ apply/destroy passent par la policy — destroy sur prod BLOQUÉ
+```
+
+## Ce qu'il fait
+
+- **Une boucle agentique from-scratch** — `message + outils → tool_use → garde →
+  exécute → résultat → boucle`, bornée. Écrite en HTTP brut sur l'API Anthropic
+  Messages, sans framework — les ~100 lignes qui font le déclic. Le client du
+  modèle est une interface, donc toute la boucle est testée avec un faux client
+  (sans clé API, sans tokens).
+- **Il construit de l'infra.** `write_file` laisse l'agent générer et réécrire
+  des fichiers `.tf` (confinés au projet). La sécurité par défaut est dans le
+  system prompt : S3 privé + public-access block + chiffrement, IAM least-privilege
+  (jamais `Action "*"`), chiffrement au repos, aucun secret en clair.
+- **Il sécurise ce qu'il construit.** `security_scan` utilise le meilleur scanner
+  installé (**checkov** en priorité, puis trivy, puis tfsec) plus une **passe
+  provider-aware** (`internal/tools/analyze.go`) qui signale les classiques en
+  clair — IAM wildcard, S3 public, chiffrement S3/RDS/EBS absent, secrets en clair
+  (sans jamais afficher la valeur). L'agent scanne, corrige, et **re-scanne
+  jusqu'à ce que ce soit propre**.
+- **La garde — le différenciateur.** Le même concept policy-as-code que les
+  guards d'[opsforge](https://github.com/Mrg77/opsforge), appliqué aux actions de
+  l'agent : des règles (`action × contexte → allow/warn/confirm/deny`, first
+  match wins). La politique par défaut **refuse `destroy` sur la prod et confirme
+  `apply` sur la prod** — et elle **échoue en mode fermé** : un destroy sur un
+  contexte qu'elle ne peut pas *prouver* non-prod (elle lit le workspace Terraform
+  passivement, pas juste le chemin) est bloqué. Les actions en lecture seule la
+  contournent ; les politiques YAML custom sont supportées.
+- **Des plans lisibles pour les gros repos.** `terraform_plan` parse
+  `terraform show -json` en tableau coloré — compteurs `+create / ~update /
+  -destroy / ±replace`, **changements destructeurs en premier**, warning ⚠,
+  plafonné avec un rollup par type pour la longue traîne. L'agent ne reçoit qu'un
+  **digest compact**, donc un plan de 500 changements n'explose ni le contexte ni
+  la facture de tokens. *Le déterministe compte ; l'IA n'explique* — le pattern
+  qui scale.
+- **Audit + coût (la couche LLMOps).** Chaque tour et chaque action gardée sont
+  écrits dans un **journal d'audit** JSONL (`~/.local/state/tfforge/audit.jsonl`)
+  — une trace revue de ce que l'agent a fait *et de ce que la garde a bloqué*. La
+  consommation de tokens est valorisée en **coût** estimé, affiché dans un résumé
+  de run. C'est ce que les équipes demandent avant de laisser un agent près de la
+  vraie infra.
+
+## Le lancer
+
+```sh
+# 1. Une clé API Anthropic — facturée au token, distincte d'un abonnement Claude.
+export ANTHROPIC_API_KEY=...        # https://console.anthropic.com
+
+# 2. Build
+go build -o tfforge .
+
+# 3. Construire + scanner + auto-corriger un stack S3 sécurisé (la démo phare)
+./tfforge "build a private, encrypted S3 bucket with least-privilege IAM in \
+  ./examples/out, scan it for security issues, and fix anything the scan finds"
+
+# 4. Voir la garde bloquer un destroy de production
+./tfforge "destroy the infrastructure in ./examples/prod"     # → BLOQUÉ par la policy
+
+# 5. Voir le scan + auto-correction réparer du code volontairement cassé
+./tfforge "scan ./examples/insecure and fix every security finding, \
+  telling me what was wrong and what you changed"
+```
+
+Chaque run affiche un résumé : `run summary · N turns · … tokens · M tool call(s)
+(K denied) · ~$cost`. Scanners optionnels : `opsforge install checkov` (ou trivy).
+
+## Tests
+
+Pas besoin de clé API ni de réseau — le client du modèle est simulé, la logique
+terraform/policy/plan est exercée directement :
+
+```sh
+go test ./...
+```
+
+Couverture : la boucle agentique (cas nominal, **le guard-deny bloque l'outil**,
+bornage de boucle, outil inconnu), la garde (**deny destroy prod**, fail-closed
+sur contexte inconnu, warn gardé, fallback policy vide), l'analyseur provider-aware,
+le parser de plan (replace dans les deux ordres, truncation gros plan), et
+coût/audit.
+
+## Notes de conception
+
+- **Sans framework, volontairement.** Toute la valeur est de voir la boucle.
+  `internal/agent` est le petit cœur qui démystifie le fonctionnement d'un agent
+  (comme Claude Code).
+- **Le Danger est porté par l'outil.** Chaque outil déclare lecture seule /
+  mutant / destructeur, donc la garde filtre par vrai rayon d'impact, pas en
+  re-devinant l'intention.
+- **La garde échoue en mode fermé.** Quand elle ne peut pas prouver qu'une action
+  est sûre, elle refuse — l'inverse de faire confiance à un nom de chemin
+  contenant « prod ».
+- **Limites assumées.** Les checks provider-aware complètent (ne remplacent pas)
+  checkov/trivy ; le coût est une estimation ; la garde est un filet solide, pas
+  une barrière absolue — à combiner avec des credentials cloud à privilèges
+  minimaux (défense en profondeur).
+
+## Configuration
+
+| Variable | Effet |
+|---|---|
+| `ANTHROPIC_API_KEY` | requise — la clé API (facturée au token) |
+| `TFFORGE_MODEL` | change le modèle (défaut `claude-sonnet-4-5`) |
+| `TFFORGE_AUDIT` | `off` pour désactiver le journal, ou un chemin pour le rediriger |
+| `NO_COLOR` | désactive la couleur du plan |
+
+---
+
+Fait partie d'un portfolio DevOps, aux côtés d'
+[opsforge](https://github.com/Mrg77/opsforge) (un poste de travail DevOps
+policy-as-code) et [KubeForge](https://github.com/Mrg77/kubeforge) (une app
+locale d'analyse Kubernetes). MIT · © Mrg77.
