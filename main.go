@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -58,10 +59,19 @@ Principles:
 
 func main() {
 	if len(os.Args) < 2 || strings.TrimSpace(strings.Join(os.Args[1:], " ")) == "" {
-		fmt.Fprintln(os.Stderr, "usage: tfforge \"<task>\"")
-		fmt.Fprintln(os.Stderr, "example: tfforge \"run the plan in ./examples/staging and explain what would change\"")
+		fmt.Fprintln(os.Stderr, "usage:")
+		fmt.Fprintln(os.Stderr, "  tfforge \"<task>\"                 run the AI agent on a task (needs ANTHROPIC_API_KEY)")
+		fmt.Fprintln(os.Stderr, "  tfforge scan <dir> [--json]      deterministic security scan, no LLM — gates CI via exit code")
 		os.Exit(2)
 	}
+
+	// `scan` is the CI subcommand: deterministic, no LLM, no API key. It exits
+	// non-zero on findings so it can gate a pipeline. Everything else is a task
+	// for the agent.
+	if os.Args[1] == "scan" {
+		os.Exit(runScan(os.Args[2:]))
+	}
+
 	task := strings.Join(os.Args[1:], " ")
 
 	client, err := anthropic.New()
@@ -110,6 +120,13 @@ func main() {
 	defer stop()
 
 	ag := agent.New(client, systemPrompt, toolset, g, tr, os.Stdout)
+
+	// Optional cost budget (FinOps for agents): stop before exceeding a ceiling.
+	if v := os.Getenv("TFFORGE_MAX_COST"); v != "" {
+		if usd, err := strconv.ParseFloat(v, 64); err == nil && usd > 0 {
+			ag.SetBudget(usd)
+		}
+	}
 
 	fmt.Printf("tfforge · model %s\n\n", client.Model())
 	// A build+validate+scan+autocorrect cycle can take several tool round-trips;

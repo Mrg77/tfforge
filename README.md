@@ -73,11 +73,19 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
   the long tail. The agent receives only a **compact digest**, so a 500-change
   plan doesn't blow the context or the token bill. *Deterministic parsing counts;
   the LLM only explains* — the pattern that scales.
-- **Audit + cost (the LLMOps layer).** Every turn and every guarded action is
-  written to a JSONL **audit log** (`~/.local/state/tfforge/audit.jsonl`) — a
-  reviewable trail of what the agent did *and what the guard blocked*. Token
-  usage is priced into an estimated **cost**, printed in a run summary. This is
-  what teams ask for before letting an agent near real infra.
+- **Audit + cost + budget (the LLMOps layer).** Every turn and every guarded
+  action is written to a JSONL **audit log** (`~/.local/state/tfforge/audit.jsonl`)
+  — a reviewable trail of what the agent did *and what the guard blocked*. Token
+  usage is priced into an estimated **cost**, printed in a run summary. A
+  **budget** (`TFFORGE_MAX_COST`) stops the run before it exceeds a ceiling —
+  FinOps for agents. Use a cheaper model for routine work with `TFFORGE_MODEL`.
+- **A CI mode — no LLM.** `tfforge scan <dir> [--json] [--fail-on <sev>]` runs
+  the deterministic security analysis *only* (no API key, no tokens) and **exits
+  non-zero** when findings meet the threshold — so the same security brain the
+  agent uses can gate a pipeline. `--json` emits a machine-readable report; the
+  provider-aware rules catch least-privilege and network gaps a coarse scanner
+  passes (a `s3:*` service wildcard, an account-wide S3 ARN, SSH open to
+  `0.0.0.0/0`, `iam:PassRole` on `*`, a publicly-accessible DB).
 
 ## Run it
 
@@ -98,6 +106,9 @@ go build -o tfforge .
 # 5. Watch the scan + auto-correct fix deliberately-broken code
 ./tfforge "scan ./examples/insecure and fix every security finding, \
   telling me what was wrong and what you changed"
+
+# 6. CI mode — no LLM, no key. Exits non-zero on findings → gate a pipeline.
+./tfforge scan ./examples/insecure --json --fail-on high
 ```
 
 Each run prints a summary: `run summary · N turns · … tokens · M tool call(s)
@@ -134,10 +145,25 @@ the plan parser (replace both orders, big-plan truncation), and cost/audit.
 
 | Env var | Effect |
 |---|---|
-| `ANTHROPIC_API_KEY` | required — the API key (billed per token) |
-| `TFFORGE_MODEL` | override the model (default `claude-sonnet-4-5`) |
+| `ANTHROPIC_API_KEY` | required for the agent — the API key (billed per token). Not needed for `scan`. |
+| `TFFORGE_MODEL` | override the model (default `claude-sonnet-4-5`; try `claude-haiku-4-5` to save) |
+| `TFFORGE_MAX_COST` | stop the run before it exceeds this USD budget (e.g. `0.50`) |
 | `TFFORGE_AUDIT` | `off` to disable the audit file, or a path to redirect it |
 | `NO_COLOR` | disable colored plan output |
+
+### CI mode (`scan`)
+
+```
+tfforge scan <dir> [--json] [--fail-on info|low|medium|high|critical|none]
+```
+
+Deterministic, no LLM, no API key. Exits `1` when the worst finding is at or
+above `--fail-on` (default `high`); `--fail-on none` is report-only. Example
+GitHub Actions gate:
+
+```yaml
+- run: go build -o tfforge . && ./tfforge scan ./infra --fail-on high
+```
 
 ---
 

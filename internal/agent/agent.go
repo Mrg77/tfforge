@@ -51,6 +51,8 @@ type Tracer interface {
 	Turn(inputTokens, outputTokens int)
 	// ToolCall records a tool invocation and the guard's decision on it.
 	ToolCall(tool string, danger tools.Danger, decision, reason string)
+	// Cost returns the estimated USD spend so far — used to enforce a budget.
+	Cost() float64
 }
 
 // LLM is the single primitive the loop needs from a model client: send
@@ -62,14 +64,20 @@ type LLM interface {
 
 // Agent wires the model, the tools, the guard and the tracer together.
 type Agent struct {
-	client LLM
-	system string
-	tools  []tools.Tool
-	byName map[string]tools.Tool
-	guard  Guard
-	tracer Tracer
-	out    io.Writer // where assistant text is streamed to the user
+	client  LLM
+	system  string
+	tools   []tools.Tool
+	byName  map[string]tools.Tool
+	guard   Guard
+	tracer  Tracer
+	out     io.Writer // where assistant text is streamed to the user
+	maxCost float64   // 0 = no budget; else stop before exceeding it
 }
+
+// SetBudget caps the run's estimated spend. When the tracer's cost reaches this
+// ceiling, Run stops with a clear error instead of billing further — the
+// "FinOps of agents" control (a real LLMOps concern).
+func (a *Agent) SetBudget(usd float64) { a.maxCost = usd }
 
 // New builds an agent. guard/tracer may be nil (defaults: allow-all / no-op) —
 // but tfforge always wires real ones; nil is only for the barest first demo.
@@ -106,6 +114,13 @@ func (a *Agent) Run(ctx context.Context, task string, maxTurns int) error {
 			return err
 		}
 		a.tracer.Turn(resp.Usage.InputTokens, resp.Usage.OutputTokens)
+
+		// Budget guard: if this run has reached its cost ceiling, stop cleanly
+		// rather than keep billing. Checked after recording the turn so the spend
+		// is accurate in the summary.
+		if a.maxCost > 0 && a.tracer.Cost() >= a.maxCost {
+			return fmt.Errorf("stopped: reached the cost budget of $%.2f (spent ~$%.4f). Raise TFFORGE_MAX_COST or simplify the task", a.maxCost, a.tracer.Cost())
+		}
 
 		// Echo any assistant text, and collect tool_use blocks to run.
 		var toolUses []anthropic.ContentBlock
@@ -197,3 +212,4 @@ type noopTracer struct{}
 
 func (noopTracer) Turn(int, int)                                 {}
 func (noopTracer) ToolCall(string, tools.Danger, string, string) {}
+func (noopTracer) Cost() float64                                 { return 0 }

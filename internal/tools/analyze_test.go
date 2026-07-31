@@ -75,6 +75,63 @@ resource "aws_db_instance" "db" {
 	}
 }
 
+func TestAnalyzeFlagsSSHToWorld(t *testing.T) {
+	dir := writeTF(t, `
+resource "aws_security_group" "bad" {
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}`)
+	out := analyzeTerraformDir(dir)
+	if !strings.Contains(out, "SSH") || !strings.Contains(out, "CRITICAL") {
+		t.Errorf("expected a CRITICAL SSH-to-world finding, got:\n%s", out)
+	}
+}
+
+func TestAnalyzeFlagsServiceWildcard(t *testing.T) {
+	// "s3:*" is broad but not "*", so checkov's plain-* rule can pass — our
+	// fine-grained rule must still catch it.
+	dir := writeTF(t, `
+resource "aws_iam_policy" "p" {
+  policy = jsonencode({ Statement = [{ Effect = "Allow", Action = "s3:*", Resource = "arn:aws:s3:::b" }] })
+}`)
+	out := analyzeTerraformDir(dir)
+	if !strings.Contains(out, "service-wide wildcard") {
+		t.Errorf("expected a service-wildcard finding for s3:*, got:\n%s", out)
+	}
+}
+
+func TestAnalyzeFlagsAccountWideS3(t *testing.T) {
+	// The exact real-world gap we hit: checkov-clean but least-privilege leak.
+	dir := writeTF(t, `
+resource "aws_iam_policy" "p" {
+  policy = jsonencode({ Statement = [{ Action = ["s3:ListAllMyBuckets"], Resource = "arn:aws:s3:::*" }] })
+}`)
+	out := analyzeTerraformDir(dir)
+	if !strings.Contains(out, "account-wide S3") {
+		t.Errorf("expected an account-wide-S3 finding, got:\n%s", out)
+	}
+}
+
+func TestSeverityGating(t *testing.T) {
+	dir := writeTF(t, `
+resource "aws_security_group" "bad" {
+  ingress { from_port = 22 to_port = 22 cidr_blocks = ["0.0.0.0/0"] }
+}`)
+	fs := AnalyzeDir(dir)
+	if MaxSeverity(fs) != SevCritical {
+		t.Errorf("SSH-to-world should max at CRITICAL, got %v", MaxSeverity(fs))
+	}
+	// A clean dir maxes at INFO.
+	clean := writeTF(t, `resource "random_pet" "x" {}`)
+	if MaxSeverity(AnalyzeDir(clean)) != SevInfo {
+		t.Error("clean code should max at INFO")
+	}
+}
+
 func TestAnalyzeCleanCodeIsSilent(t *testing.T) {
 	dir := writeTF(t, `
 resource "aws_s3_bucket" "good" {

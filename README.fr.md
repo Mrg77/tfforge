@@ -76,12 +76,21 @@ rendent un agent digne de confiance.
   **digest compact**, donc un plan de 500 changements n'explose ni le contexte ni
   la facture de tokens. *Le déterministe compte ; l'IA n'explique* — le pattern
   qui scale.
-- **Audit + coût (la couche LLMOps).** Chaque tour et chaque action gardée sont
-  écrits dans un **journal d'audit** JSONL (`~/.local/state/tfforge/audit.jsonl`)
-  — une trace revue de ce que l'agent a fait *et de ce que la garde a bloqué*. La
-  consommation de tokens est valorisée en **coût** estimé, affiché dans un résumé
-  de run. C'est ce que les équipes demandent avant de laisser un agent près de la
-  vraie infra.
+- **Audit + coût + budget (la couche LLMOps).** Chaque tour et chaque action
+  gardée sont écrits dans un **journal d'audit** JSONL
+  (`~/.local/state/tfforge/audit.jsonl`) — une trace revue de ce que l'agent a
+  fait *et de ce que la garde a bloqué*. Les tokens sont valorisés en **coût**
+  estimé, affiché dans un résumé de run. Un **budget** (`TFFORGE_MAX_COST`)
+  arrête le run avant qu'il ne dépasse un plafond — du FinOps pour agents. Et un
+  modèle moins cher pour la routine via `TFFORGE_MODEL`.
+- **Un mode CI — sans LLM.** `tfforge scan <dir> [--json] [--fail-on <sev>]`
+  lance l'analyse de sécurité déterministe *seule* (sans clé API, sans tokens) et
+  **sort en code non-zéro** quand des findings atteignent le seuil — donc le même
+  cerveau sécu que l'agent peut gater un pipeline. `--json` sort un rapport
+  machine ; les règles provider-aware attrapent des écarts de least-privilege et
+  réseau qu'un scanner grossier laisse passer (un wildcard de service `s3:*`, un
+  ARN S3 account-wide, du SSH ouvert à `0.0.0.0/0`, `iam:PassRole` sur `*`, une
+  base publiquement accessible).
 
 ## Le lancer
 
@@ -102,6 +111,9 @@ go build -o tfforge .
 # 5. Voir le scan + auto-correction réparer du code volontairement cassé
 ./tfforge "scan ./examples/insecure and fix every security finding, \
   telling me what was wrong and what you changed"
+
+# 6. Mode CI — sans LLM, sans clé. Sort non-zéro sur findings → gate un pipeline.
+./tfforge scan ./examples/insecure --json --fail-on high
 ```
 
 Chaque run affiche un résumé : `run summary · N turns · … tokens · M tool call(s)
@@ -142,10 +154,25 @@ coût/audit.
 
 | Variable | Effet |
 |---|---|
-| `ANTHROPIC_API_KEY` | requise — la clé API (facturée au token) |
-| `TFFORGE_MODEL` | change le modèle (défaut `claude-sonnet-4-5`) |
+| `ANTHROPIC_API_KEY` | requise pour l'agent — la clé API (facturée au token). Pas nécessaire pour `scan`. |
+| `TFFORGE_MODEL` | change le modèle (défaut `claude-sonnet-4-5` ; `claude-haiku-4-5` pour économiser) |
+| `TFFORGE_MAX_COST` | arrête le run avant de dépasser ce budget USD (ex. `0.50`) |
 | `TFFORGE_AUDIT` | `off` pour désactiver le journal, ou un chemin pour le rediriger |
 | `NO_COLOR` | désactive la couleur du plan |
+
+### Mode CI (`scan`)
+
+```
+tfforge scan <dir> [--json] [--fail-on info|low|medium|high|critical|none]
+```
+
+Déterministe, sans LLM, sans clé API. Sort `1` quand le pire finding est au seuil
+`--fail-on` ou au-dessus (défaut `high`) ; `--fail-on none` = report-only.
+Exemple de gate GitHub Actions :
+
+```yaml
+- run: go build -o tfforge . && ./tfforge scan ./infra --fail-on high
+```
 
 ---
 

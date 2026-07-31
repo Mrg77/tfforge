@@ -57,6 +57,7 @@ func (r *recordingTracer) Turn(in, out int) {
 func (r *recordingTracer) ToolCall(_ string, _ tools.Danger, decision, _ string) {
 	r.decisions = append(r.decisions, decision)
 }
+func (r *recordingTracer) Cost() float64 { return 0 }
 
 // staticGuard returns a fixed decision — lets us test allow vs deny paths.
 type staticGuard struct {
@@ -131,6 +132,32 @@ func TestMaxTurnsStopsLoop(t *testing.T) {
 	err := ag.Run(context.Background(), "loop forever", 3)
 	if err == nil || !strings.Contains(err.Error(), "possible loop") {
 		t.Errorf("expected a loop-bound error after maxTurns, got %v", err)
+	}
+}
+
+// costTracer reports a fixed per-turn cost so the budget can be tested.
+type costTracer struct{ perTurn, total float64 }
+
+func (c *costTracer) Turn(int, int)                                 { c.total += c.perTurn }
+func (c *costTracer) ToolCall(string, tools.Danger, string, string) {}
+func (c *costTracer) Cost() float64                                 { return c.total }
+
+// TestBudgetStopsRun: with a $1 budget and $0.60/turn, the run must stop after
+// the 2nd turn (spend $1.20 ≥ $1) instead of billing further. The FinOps guard.
+func TestBudgetStopsRun(t *testing.T) {
+	ft := &fakeTool{name: "terraform_plan", danger: tools.ReadOnly, result: "again"}
+	loop := &anthropic.Response{StopReason: "tool_use", Content: []anthropic.ContentBlock{toolUse("t1", "terraform_plan")}}
+	llm := &fakeLLM{responses: []*anthropic.Response{loop, loop, loop, loop, loop}}
+	ag := New(llm, "sys", []tools.Tool{ft}, staticGuard{Allow, "ok"}, &costTracer{perTurn: 0.60}, io.Discard)
+	ag.SetBudget(1.0)
+
+	err := ag.Run(context.Background(), "spend", 10)
+	if err == nil || !strings.Contains(err.Error(), "cost budget") {
+		t.Errorf("expected a cost-budget stop, got %v", err)
+	}
+	// Should have stopped early — not run all 5 scripted turns.
+	if llm.calls > 2 {
+		t.Errorf("budget should have stopped the run by turn 2, but made %d calls", llm.calls)
 	}
 }
 
