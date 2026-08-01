@@ -16,3 +16,6 @@
 # OS / editor
 .DS_Store
 **/.tfforge.plan
+
+# GoReleaser build output
+/dist/
