@@ -38,7 +38,7 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
    3. SECURE ────▶ security_scan: checkov / trivy / tfsec + provider-aware
         │           checks (wildcard IAM, public S3, missing encryption…)
         │
-   4. AUTO-CORRECT ▶ findings? the agent REWRITES the code and scans AGAIN
+   4. AUTO-CORRECT ▶ findings? the agent edits (edit_file) and scans AGAIN
         │            (the loop that makes it feel alive) — until clean
         │
    5. PLAN ──────▶ terraform_plan, rendered as a readable table
@@ -57,11 +57,19 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
   `.tf` files (confined to the project). Security-by-default is baked into the
   system prompt: private S3 + public-access block + encryption, least-privilege
   IAM (never `Action "*"`), encryption at rest, no hard-coded secrets.
-- **It secures what it builds.** `security_scan` uses the best installed scanner
-  (**checkov** preferred, then trivy, then tfsec) plus a **provider-aware pass**
-  (`internal/tools/analyze.go`) that flags the classics in plain language —
-  wildcard IAM, public S3, missing S3/RDS/EBS encryption, hard-coded secrets
-  (never printing the value). The agent scans, fixes, and **re-scans until clean**.
+- **It secures — and modernizes — what it builds.** `security_scan` uses the best
+  installed scanner (**checkov** preferred, then trivy, then tfsec) plus a
+  **deterministic provider-aware pass** that flags issues in three categories:
+  - **security** — wildcard IAM, public S3, missing encryption, SSH/RDP open to
+    the world, `iam:PassRole` on `*`, hard-coded secrets (never printing the value);
+  - **version** — deprecated syntax (inline S3 `acl`/`versioning`/encryption on the
+    modern provider), an outdated AWS provider (v3 or older), a missing or pre-1.0
+    `required_version` — so the agent modernizes code, not just secures it;
+  - **best-practice** — a hard-coded provider region, missing `required_providers`,
+    a multi-resource file with no remote backend.
+
+  The agent scans, fixes (surgically with `edit_file`, not a full rewrite), and
+  **re-scans until clean**.
 - **The guard — the differentiator.** The same policy-as-code idea as
   [opsforge](https://github.com/Mrg77/opsforge)'s shell guards, applied to the
   agent's actions: rules (`action × context → allow/warn/confirm/deny`, first
@@ -81,7 +89,9 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
   — a reviewable trail of what the agent did *and what the guard blocked*. Token
   usage is priced into an estimated **cost**, printed in a run summary. A
   **budget** (`TFFORGE_MAX_COST`) stops the run before it exceeds a ceiling —
-  FinOps for agents. Use a cheaper model for routine work with `TFFORGE_MODEL`.
+  FinOps for agents. The agent is also tuned to spend fewer tokens: it edits
+  surgically instead of rewriting files, plans once, and keeps prose short; and
+  `TFFORGE_MODEL=claude-haiku-4-5` runs it ~3× cheaper.
 - **A CI mode — no LLM.** `tfforge scan <dir> [--json] [--fail-on <sev>]` runs
   the deterministic security analysis *only* (no API key, no tokens) and **exits
   non-zero** when findings meet the threshold — so the same security brain the
@@ -165,7 +175,7 @@ the plan parser (replace both orders, big-plan truncation), and cost/audit.
 | Env var | Effect |
 |---|---|
 | `ANTHROPIC_API_KEY` | required for the agent — the API key (billed per token). Not needed for `scan`. |
-| `TFFORGE_MODEL` | override the model (default `claude-sonnet-4-5`; try `claude-haiku-4-5` to save) |
+| `TFFORGE_MODEL` | override the model (default `claude-sonnet-4-5`; `claude-haiku-4-5` is ~3× cheaper) |
 | `TFFORGE_MAX_COST` | stop the run before it exceeds this USD budget (e.g. `0.50`) |
 | `TFFORGE_AUDIT` | `off` to disable the audit file, or a path to redirect it |
 | `NO_COLOR` | disable colored plan output |

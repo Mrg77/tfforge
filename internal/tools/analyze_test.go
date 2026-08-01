@@ -132,8 +132,18 @@ resource "aws_security_group" "bad" {
 	}
 }
 
+// A secure, modern, complete config must produce NO findings at all — proving
+// the analyzer stays quiet on genuinely good code (no false positives).
 func TestAnalyzeCleanCodeIsSilent(t *testing.T) {
 	dir := writeTF(t, `
+terraform {
+  required_version = ">= 1.5"
+  required_providers { aws = { source = "hashicorp/aws", version = "~> 5.0" } }
+  backend "s3" { bucket = "state" key = "x" region = "eu-west-1" }
+}
+provider "aws" {
+  region = var.region
+}
 resource "aws_s3_bucket" "good" {
   bucket = "my-bucket"
 }
@@ -149,6 +159,6 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "good" {
   }
 }`)
 	if out := analyzeTerraformDir(dir); out != "" {
-		t.Errorf("clean code should produce no findings, got:\n%s", out)
+		t.Errorf("clean, modern code should produce no findings, got:\n%s", out)
 	}
 }

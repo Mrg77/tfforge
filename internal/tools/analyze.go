@@ -34,9 +34,21 @@ func (s Severity) String() string {
 	}
 }
 
-// Finding is one provider-aware security issue tfforge's own analysis flagged.
+// Category groups a finding by concern, so a scan can be read (and filtered) by
+// what it's about: a security risk, an outdated/deprecated version, or a
+// non-security best-practice.
+type Category string
+
+const (
+	CatSecurity     Category = "security"
+	CatVersion      Category = "version"       // outdated/deprecated Terraform, providers, syntax
+	CatBestPractice Category = "best-practice" // structure, typing, backend, naming
+)
+
+// Finding is one issue tfforge's own analysis flagged.
 type Finding struct {
 	File     string   `json:"file"`
+	Category Category `json:"category"`
 	Severity string   `json:"severity"`
 	Message  string   `json:"message"`
 	sev      Severity // kept for gating/sorting, not serialized
@@ -71,6 +83,8 @@ func AnalyzeDir(dir string) []Finding {
 		findings = append(findings, checkNetwork(base, src)...)
 		findings = append(findings, checkTransit(base, src)...)
 		findings = append(findings, checkHardcodedSecrets(base, src)...)
+		findings = append(findings, checkVersions(base, src)...)      // outdated/deprecated TF & providers
+		findings = append(findings, checkBestPractices(base, src)...) // objective best practices
 	}
 	return findings
 }
@@ -94,7 +108,7 @@ func RenderFindings(fs []Finding) string {
 	}
 	var b strings.Builder
 	for _, f := range fs {
-		fmt.Fprintf(&b, "  [%s] %s — %s\n", f.Severity, f.File, f.Message)
+		fmt.Fprintf(&b, "  [%s·%s] %s — %s\n", f.Severity, f.Category, f.File, f.Message)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -156,7 +170,12 @@ func checkHardcodedSecrets(file, src string) []Finding {
 	return nil
 }
 
-// finding builds a Finding with both the display severity string and the level.
+// finding builds a SECURITY finding (the common case for the existing checks).
 func finding(file string, sev Severity, msg string) Finding {
-	return Finding{File: file, Severity: sev.String(), Message: msg, sev: sev}
+	return findingCat(file, CatSecurity, sev, msg)
+}
+
+// findingCat builds a finding in a specific category (version, best-practice…).
+func findingCat(file string, cat Category, sev Severity, msg string) Finding {
+	return Finding{File: file, Category: cat, Severity: sev.String(), Message: msg, sev: sev}
 }

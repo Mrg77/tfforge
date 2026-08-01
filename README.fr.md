@@ -36,7 +36,7 @@ rendent un agent digne de confiance.
    3. SÉCURISE ────▶ security_scan : checkov / trivy / tfsec + checks
         │             provider-aware (IAM wildcard, S3 public, chiffrement absent…)
         │
-   4. AUTO-CORRIGE ▶ des findings ? l'agent RÉÉCRIT le code et re-scanne
+   4. AUTO-CORRIGE ▶ des findings ? l'agent corrige (edit_file) et re-scanne
         │             (la boucle qui le rend vivant) — jusqu'à ce que ce soit propre
         │
    5. PLANIFIE ────▶ terraform_plan, rendu en tableau lisible
@@ -55,12 +55,19 @@ rendent un agent digne de confiance.
   des fichiers `.tf` (confinés au projet). La sécurité par défaut est dans le
   system prompt : S3 privé + public-access block + chiffrement, IAM least-privilege
   (jamais `Action "*"`), chiffrement au repos, aucun secret en clair.
-- **Il sécurise ce qu'il construit.** `security_scan` utilise le meilleur scanner
-  installé (**checkov** en priorité, puis trivy, puis tfsec) plus une **passe
-  provider-aware** (`internal/tools/analyze.go`) qui signale les classiques en
-  clair — IAM wildcard, S3 public, chiffrement S3/RDS/EBS absent, secrets en clair
-  (sans jamais afficher la valeur). L'agent scanne, corrige, et **re-scanne
-  jusqu'à ce que ce soit propre**.
+- **Il sécurise — et modernise — ce qu'il construit.** `security_scan` utilise le
+  meilleur scanner installé (**checkov** en priorité, puis trivy, puis tfsec) plus
+  une **passe déterministe provider-aware** qui signale en trois catégories :
+  - **security** — IAM wildcard, S3 public, chiffrement absent, SSH/RDP ouvert au
+    monde, `iam:PassRole` sur `*`, secrets en clair (sans afficher la valeur) ;
+  - **version** — syntaxe dépréciée (inline S3 `acl`/`versioning`/chiffrement sur le
+    provider moderne), provider AWS périmé (v3 ou moins), `required_version` absent
+    ou pré-1.0 — l'agent modernise le code, pas seulement le sécurise ;
+  - **best-practice** — région du provider hard-codée, `required_providers` absent,
+    fichier multi-ressources sans backend distant.
+
+  L'agent scanne, corrige (chirurgicalement avec `edit_file`, pas une réécriture),
+  et **re-scanne jusqu'à ce que ce soit propre**.
 - **La garde — le différenciateur.** Le même concept policy-as-code que les
   guards d'[opsforge](https://github.com/Mrg77/opsforge), appliqué aux actions de
   l'agent : des règles (`action × contexte → allow/warn/confirm/deny`, first
@@ -81,8 +88,10 @@ rendent un agent digne de confiance.
   (`~/.local/state/tfforge/audit.jsonl`) — une trace revue de ce que l'agent a
   fait *et de ce que la garde a bloqué*. Les tokens sont valorisés en **coût**
   estimé, affiché dans un résumé de run. Un **budget** (`TFFORGE_MAX_COST`)
-  arrête le run avant qu'il ne dépasse un plafond — du FinOps pour agents. Et un
-  modèle moins cher pour la routine via `TFFORGE_MODEL`.
+  arrête le run avant qu'il ne dépasse un plafond — du FinOps pour agents. L'agent
+  est aussi optimisé pour consommer moins : il édite chirurgicalement au lieu de
+  réécrire, ne planifie qu'une fois, reste concis ; et `TFFORGE_MODEL=claude-haiku-4-5`
+  le fait tourner ~3× moins cher.
 - **Un mode CI — sans LLM.** `tfforge scan <dir> [--json] [--fail-on <sev>]`
   lance l'analyse de sécurité déterministe *seule* (sans clé API, sans tokens) et
   **sort en code non-zéro** quand des findings atteignent le seuil — donc le même
@@ -171,7 +180,7 @@ coût/audit.
 | Variable | Effet |
 |---|---|
 | `ANTHROPIC_API_KEY` | requise pour l'agent — la clé API (facturée au token). Pas nécessaire pour `scan`. |
-| `TFFORGE_MODEL` | change le modèle (défaut `claude-sonnet-4-5` ; `claude-haiku-4-5` pour économiser) |
+| `TFFORGE_MODEL` | change le modèle (défaut `claude-sonnet-4-5` ; `claude-haiku-4-5` ~3× moins cher) |
 | `TFFORGE_MAX_COST` | arrête le run avant de dépasser ce budget USD (ex. `0.50`) |
 | `TFFORGE_AUDIT` | `off` pour désactiver le journal, ou un chemin pour le rediriger |
 | `NO_COLOR` | désactive la couleur du plan |

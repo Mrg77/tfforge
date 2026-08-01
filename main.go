@@ -38,9 +38,10 @@ infrastructure, follow this loop until the result is clean:
      security-first: private by default, encryption on, least-privilege IAM).
   2. VALIDATE — run terraform_validate. If it fails, fix the code and re-validate.
   3. SECURE — run security_scan (checkov/trivy/tfsec + provider-aware checks).
-  4. AUTO-CORRECT — if the scan reports findings, REWRITE the code to fix them
-     (write_file again) and scan AGAIN. Repeat until the scan is clean or only
-     acceptable, explicitly-justified findings remain.
+  4. AUTO-CORRECT — if the scan reports findings, fix them. Prefer edit_file for a
+     small change; use write_file only to create a file or rewrite a large part.
+     Scan AGAIN. Repeat until clean, or only acceptable, explicitly-justified
+     findings remain.
   5. PLAN — run terraform_plan to show what would be created/changed.
   6. Only apply/destroy if explicitly asked; those pass through the safety policy.
 
@@ -49,6 +50,15 @@ Security defaults you always apply when generating code:
   - IAM: never Action "*" or Resource "*" — scope to what's needed.
   - Databases/volumes: encryption at rest on.
   - Never hard-code secrets in .tf — use variables.
+
+Efficiency (this matters — you cost tokens):
+  - Do NOT repeat a tool call whose result you already have. Run terraform_plan
+    at most ONCE, at the end. Run security_scan once per code version, not
+    speculatively.
+  - When fixing, rewrite the SMALLEST file that needs it — don't regenerate files
+    that are already correct.
+  - Keep your prose short. A one-line verdict + the specific fixes beats a long recap.
+  - Stop as soon as the task is done; don't add extra verification passes.
 
 Principles:
   - Understand before acting; be precise and concise; lead with the verdict.
@@ -101,7 +111,8 @@ func main() {
 	// The tool set: generate + validate + scan (the build/secure loop), plus
 	// read-only analysis and guarded mutating/destructive actions.
 	toolset := []tools.Tool{
-		tools.WriteFileTool{},    // generate & auto-correct code
+		tools.WriteFileTool{},    // generate a new file
+		tools.EditFileTool{},     // surgical fix (cheaper than a rewrite)
 		tools.ValidateTool{},     // syntax gate
 		tools.SecurityScanTool{}, // checkov/trivy/tfsec + provider-aware
 		tools.PlanTool{},         // impact preview
