@@ -85,6 +85,8 @@ func AnalyzeDir(dir string) []Finding {
 		findings = append(findings, checkSecretResources(base, src)...) // literal in secretsmanager/ssm
 		findings = append(findings, checkTransit(base, src)...)
 		findings = append(findings, checkHardcodedSecrets(base, src)...)
+		findings = append(findings, checkGCP(base, src)...)           // Google Cloud rules
+		findings = append(findings, checkAzure(base, src)...)         // Azure rules
 		findings = append(findings, checkVersions(base, src)...)      // outdated/deprecated TF & providers
 		findings = append(findings, checkBestPractices(base, src)...) // objective best practices
 	}
