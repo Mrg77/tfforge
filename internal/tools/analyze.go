@@ -81,6 +81,8 @@ func AnalyzeDir(dir string) []Finding {
 		findings = append(findings, checkS3Public(base, src)...)
 		findings = append(findings, checkEncryption(base, src)...)
 		findings = append(findings, checkNetwork(base, src)...)
+		findings = append(findings, checkPublicPolicy(base, src)...)    // Principal "*" public exposure
+		findings = append(findings, checkSecretResources(base, src)...) // literal in secretsmanager/ssm
 		findings = append(findings, checkTransit(base, src)...)
 		findings = append(findings, checkHardcodedSecrets(base, src)...)
 		findings = append(findings, checkVersions(base, src)...)      // outdated/deprecated TF & providers
@@ -122,7 +124,15 @@ var (
 	reIAMWildcardAction   = regexp.MustCompile(`(?i)"?Action"?\s*[:=]\s*\[?\s*"\*"`)
 	reIAMWildcardResource = regexp.MustCompile(`(?i)"?Resource"?\s*[:=]\s*\[?\s*"\*"`)
 	reS3PublicACL         = regexp.MustCompile(`(?i)acl\s*=\s*"public-read(-write)?"`)
-	reHardcodedSecret     = regexp.MustCompile(`(?i)(secret_key|password|private_key|api_key|access_key)\s*=\s*"[^"$][^"]{7,}"`)
+	// A credential assigned a literal value. Covers three real forms:
+	//   name = "literal"     (HCL attribute)
+	//   name : "literal"     (jsonencode / JSON body)
+	//   NAME=literal         (shell in a heredoc / user_data, no quotes)
+	reHardcodedSecret = regexp.MustCompile(`(?i)(secret_key|password|passwd|private_key|api_key|access_key|token)\s*[:=]\s*"[^"$][^"]{7,}"`)
+	// Shell-style NAME=value (heredoc / user_data). The name may be prefixed
+	// (DB_PASSWORD, MY_SECRET), so we don't require a word boundary before it;
+	// the value must be a literal (not a $ref) of some length.
+	reSecretShell = regexp.MustCompile(`(?i)(PASSWORD|PASSWD|SECRET|API_KEY|ACCESS_KEY|_TOKEN|PRIVATE_KEY)=[^\s"'$][^\s"']{6,}`)
 )
 
 func checkIAMWildcard(file, src string) []Finding {
@@ -160,12 +170,25 @@ func checkEncryption(file, src string) []Finding {
 		!regexp.MustCompile(`(?i)encrypted\s*=\s*true`).MatchString(src) {
 		out = append(out, finding(file, SevHigh, "aws_ebs_volume without encrypted = true — the volume is unencrypted."))
 	}
+	// Aurora / Redshift clusters need storage_encrypted / encrypted too.
+	if strings.Contains(src, `resource "aws_rds_cluster"`) &&
+		!regexp.MustCompile(`(?i)storage_encrypted\s*=\s*true`).MatchString(src) {
+		out = append(out, finding(file, SevHigh, "aws_rds_cluster (Aurora) without storage_encrypted = true — cluster data at rest is unencrypted."))
+	}
+	if strings.Contains(src, `resource "aws_redshift_cluster"`) &&
+		!regexp.MustCompile(`(?i)\bencrypted\s*=\s*true`).MatchString(src) {
+		out = append(out, finding(file, SevHigh, "aws_redshift_cluster without encrypted = true — the warehouse is unencrypted."))
+	}
+	if strings.Contains(src, `resource "aws_efs_file_system"`) &&
+		!regexp.MustCompile(`(?i)\bencrypted\s*=\s*true`).MatchString(src) {
+		out = append(out, finding(file, SevMedium, "aws_efs_file_system without encrypted = true — the filesystem is unencrypted."))
+	}
 	return out
 }
 
 func checkHardcodedSecrets(file, src string) []Finding {
-	if reHardcodedSecret.MatchString(src) {
-		return []Finding{finding(file, SevCritical, "a credential looks hard-coded in the .tf — move it to a variable, a secret manager, or a *.tfvars kept out of VCS. (tfforge does not print the value.)")}
+	if reHardcodedSecret.MatchString(src) || reSecretShell.MatchString(src) {
+		return []Finding{finding(file, SevCritical, "a credential looks hard-coded in the .tf (attribute, JSON, or heredoc/user_data) — move it to a variable, a secret manager, or a *.tfvars kept out of VCS. (tfforge does not print the value.)")}
 	}
 	return nil
 }
