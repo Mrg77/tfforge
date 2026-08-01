@@ -55,6 +55,11 @@ rendent un agent digne de confiance.
   des fichiers `.tf` (confinés au projet). La sécurité par défaut est dans le
   system prompt : S3 privé + public-access block + chiffrement, IAM least-privilege
   (jamais `Action "*"`), chiffrement au repos, aucun secret en clair.
+- **Marche avec n'importe quel provider.** L'agent, la garde, `plan` et les
+  scanners externes (checkov/trivy) sont **agnostiques** — utilise tfforge sur AWS,
+  GCP, Azure ou un cloud privé (VMware, OpenStack…) de la même façon. En plus, les
+  règles **maison** de tfforge couvrent les **trois hyperscalers** (AWS, GCP,
+  Azure) ; le reste passe par checkov + l'agent + la garde.
 - **Il sécurise — et modernise — ce qu'il construit.** `security_scan` utilise le
   meilleur scanner installé (**checkov** en priorité, puis trivy, puis tfsec) plus
   une **passe déterministe provider-aware** qui signale en trois catégories :
@@ -66,7 +71,9 @@ rendent un agent digne de confiance.
     adversarialement** : une batterie de cas piégeux verrouille ce qui doit être
     détecté ET ce qui doit rester silencieux (ex. `s3:*` dans un `Deny` est OK, un
     `aws_s3_bucket_acl` moderne n'est pas une déprécation) — donc pas de faux
-    positifs qui saoulent ;
+    positifs qui saoulent. La même rigueur couvre **GCP** (bucket GCS public,
+    firewall ouvert au monde, rôles IAM primitifs, clés SA long-terme) et **Azure**
+    (règles NSG ouvertes, blob public, HTTPS désactivé, vieux TLS) ;
   - **version** — syntaxe dépréciée (inline S3 `acl`/`versioning`/chiffrement sur le
     provider moderne), provider AWS périmé (v3 ou moins), `required_version` absent
     ou pré-1.0 — l'agent modernise le code, pas seulement le sécurise ;

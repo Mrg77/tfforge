@@ -57,6 +57,11 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
   `.tf` files (confined to the project). Security-by-default is baked into the
   system prompt: private S3 + public-access block + encryption, least-privilege
   IAM (never `Action "*"`), encryption at rest, no hard-coded secrets.
+- **Works with any provider.** The agent, the guard, `plan`, and the external
+  scanners (checkov/trivy) are **provider-agnostic** — use tfforge on AWS, GCP,
+  Azure, or a private cloud (VMware, OpenStack…) all the same. On top of that,
+  tfforge's **own** high-signal rules cover the **three hyperscalers** (AWS, GCP,
+  Azure); everything else still gets checkov + the agent + the guard.
 - **It secures — and modernizes — what it builds.** `security_scan` uses the best
   installed scanner (**checkov** preferred, then trivy, then tfsec) plus a
   **deterministic provider-aware pass** that flags issues in three categories:
@@ -67,7 +72,9 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
     user_data — never printing the value). The rules are **adversarially tested**:
     a suite of tricky cases locks in both what must be caught and what must stay
     quiet (e.g. `s3:*` in a `Deny` is fine, a modern `aws_s3_bucket_acl` isn't a
-    deprecation) — so there are no annoying false positives;
+    deprecation) — so there are no annoying false positives. The same rigor covers
+    **GCP** (public GCS bucket, firewall open to the world, primitive IAM roles,
+    long-lived SA keys) and **Azure** (open NSG rules, public blob, HTTPS off, old TLS);
   - **version** — deprecated syntax (inline S3 `acl`/`versioning`/encryption on the
     modern provider), an outdated AWS provider (v3 or older), a missing or pre-1.0
     `required_version` — so the agent modernizes code, not just secures it;
