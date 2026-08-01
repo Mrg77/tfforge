@@ -95,10 +95,18 @@ rendent un agent digne de confiance.
 ## Installer
 
 ```sh
-brew install mrg77/tap/tfforge      # macOS / Linux
+# macOS (Homebrew) :
+brew install mrg77/tap/tfforge
+
+# Linux (Debian/Ubuntu/Alpine…) ou macOS — le script d'installation :
+curl -fsSL https://raw.githubusercontent.com/Mrg77/tfforge/master/install.sh | sh
+
 # ou depuis les sources :
 go build -o tfforge .
 ```
+
+Le script choisit le bon binaire pour votre OS/arch et le pose dans `~/.local/bin`
+(surchargez avec `TFFORGE_INSTALL_DIR`, épinglez avec `TFFORGE_VERSION=v0.1.0`).
 
 ## Le lancer
 

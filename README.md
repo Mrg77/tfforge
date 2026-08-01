@@ -93,10 +93,18 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
 ## Install
 
 ```sh
-brew install mrg77/tap/tfforge      # macOS / Linux
+# macOS (Homebrew):
+brew install mrg77/tap/tfforge
+
+# Linux (Debian/Ubuntu/Alpine…) or macOS — the install script:
+curl -fsSL https://raw.githubusercontent.com/Mrg77/tfforge/master/install.sh | sh
+
 # or build from source:
 go build -o tfforge .
 ```
+
+The script picks the right binary for your OS/arch and drops it in `~/.local/bin`
+(override with `TFFORGE_INSTALL_DIR`, pin a version with `TFFORGE_VERSION=v0.1.0`).
 
 ## Run it
 
