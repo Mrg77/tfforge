@@ -60,8 +60,14 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
 - **It secures — and modernizes — what it builds.** `security_scan` uses the best
   installed scanner (**checkov** preferred, then trivy, then tfsec) plus a
   **deterministic provider-aware pass** that flags issues in three categories:
-  - **security** — wildcard IAM, public S3, missing encryption, SSH/RDP open to
-    the world, `iam:PassRole` on `*`, hard-coded secrets (never printing the value);
+  - **security** — wildcard IAM, public S3 (ACL **or** a `Principal "*"` bucket
+    policy), missing encryption (S3, RDS/Aurora, Redshift, EBS, EFS), SSH/RDP open
+    to the world (IPv4 **and** IPv6 `::/0`), wide-open ingress/egress,
+    `iam:PassRole` on `*`, hard-coded secrets (attribute, JSON, **or** heredoc/
+    user_data — never printing the value). The rules are **adversarially tested**:
+    a suite of tricky cases locks in both what must be caught and what must stay
+    quiet (e.g. `s3:*` in a `Deny` is fine, a modern `aws_s3_bucket_acl` isn't a
+    deprecation) — so there are no annoying false positives;
   - **version** — deprecated syntax (inline S3 `acl`/`versioning`/encryption on the
     modern provider), an outdated AWS provider (v3 or older), a missing or pre-1.0
     `required_version` — so the agent modernizes code, not just secures it;

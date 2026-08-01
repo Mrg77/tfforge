@@ -58,8 +58,15 @@ rendent un agent digne de confiance.
 - **Il sécurise — et modernise — ce qu'il construit.** `security_scan` utilise le
   meilleur scanner installé (**checkov** en priorité, puis trivy, puis tfsec) plus
   une **passe déterministe provider-aware** qui signale en trois catégories :
-  - **security** — IAM wildcard, S3 public, chiffrement absent, SSH/RDP ouvert au
-    monde, `iam:PassRole` sur `*`, secrets en clair (sans afficher la valeur) ;
+  - **security** — IAM wildcard, S3 public (ACL **ou** une bucket policy
+    `Principal "*"`), chiffrement absent (S3, RDS/Aurora, Redshift, EBS, EFS),
+    SSH/RDP ouvert au monde (IPv4 **et** IPv6 `::/0`), ingress/egress grand ouvert,
+    `iam:PassRole` sur `*`, secrets en clair (attribut, JSON, **ou** heredoc/
+    user_data — sans afficher la valeur). Les règles sont **testées
+    adversarialement** : une batterie de cas piégeux verrouille ce qui doit être
+    détecté ET ce qui doit rester silencieux (ex. `s3:*` dans un `Deny` est OK, un
+    `aws_s3_bucket_acl` moderne n'est pas une déprécation) — donc pas de faux
+    positifs qui saoulent ;
   - **version** — syntaxe dépréciée (inline S3 `acl`/`versioning`/chiffrement sur le
     provider moderne), provider AWS périmé (v3 ou moins), `required_version` absent
     ou pré-1.0 — l'agent modernise le code, pas seulement le sécurise ;
