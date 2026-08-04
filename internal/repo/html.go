@@ -22,8 +22,8 @@ import (
 // enrich, when non-nil, maps a finding's identity (file + message) to an
 // AI-written explanation; it's how the optional `--explain` layer grafts onto
 // the deterministic report without the HTML knowing anything about the model.
-func (r *Report) HTML(enrich map[string]Enrichment) string {
-	data := r.htmlModel(enrich)
+func (r *Report) HTML(enrich map[string]Enrichment, cost *ExplainCost) string {
+	data := r.htmlModel(enrich, cost)
 	var b strings.Builder
 	if err := htmlTmpl.Execute(&b, data); err != nil {
 		// Templating a fixed template over validated data shouldn't fail; if it
@@ -36,11 +36,21 @@ func (r *Report) HTML(enrich map[string]Enrichment) string {
 }
 
 // Enrichment is one finding's AI-written fix: a short prose explanation plus an
-// optional concrete HCL snippet. The --explain CLI layer fills these in; the
-// HTML renders Prose as a "Fix ·" line and Code as a copy-pasteable block.
+// optional before/after HCL diff. The --explain CLI layer fills these in; the
+// HTML renders Prose as a "Fix ·" line and Before/After as a diff.
 type Enrichment struct {
-	Prose string
-	Code  string
+	Prose  string
+	Before string // current problematic HCL (reconstructed), "" if none
+	After  string // corrected HCL, copy-pasteable
+}
+
+// ExplainCost is the FinOps summary of the --explain API call, shown in the HTML
+// footer so the AI layer's spend is visible. Zero value = no AI call was made.
+type ExplainCost struct {
+	Model  string
+	InTok  int
+	OutTok int
+	USD    float64
 }
 
 // EnrichKey identifies a finding for the AI-explanation map (used by the CLI's
@@ -61,14 +71,15 @@ type htmlCat struct {
 }
 
 type htmlFinding struct {
-	Rank        int
-	Severity    string
-	SevClass    string // css class: crit|high|med|low|info
-	Category    string
-	File        string
-	Message     string
-	Explain     string // AI enrichment prose, "" if none
-	ExplainCode string // AI-written HCL fix snippet, "" if none
+	Rank     int
+	Severity string
+	SevClass string // css class: crit|high|med|low|info
+	Category string
+	File     string
+	Message  string
+	Explain  string // AI enrichment prose, "" if none
+	Before   string // AI-reconstructed current HCL, "" if none
+	After    string // AI-written fixed HCL, "" if none
 }
 
 type htmlDir struct {
@@ -99,6 +110,7 @@ type htmlModel struct {
 	Verdict      string // one-line human verdict
 	VerdictClass string // healthy|attention|urgent
 	Enriched     bool
+	Cost         *ExplainCost // set when --explain ran; nil otherwise
 
 	AllShown     []htmlFinding // capped "All" list
 	AllShownN    int
@@ -129,9 +141,10 @@ func sevClass(s string) string {
 // never silent, and always the WORST N (findings are pre-sorted worst-first).
 const maxPerPanel = 50
 
-func (r *Report) htmlModel(enrich map[string]Enrichment) htmlModel {
+func (r *Report) htmlModel(enrich map[string]Enrichment, cost *ExplainCost) htmlModel {
 	cat := r.CategoryCounts()
 	m := htmlModel{
+		Cost:         cost,
 		Root:         r.Root,
 		DirsScanned:  r.DirsScanned,
 		TFFiles:      r.TFFiles,
@@ -175,7 +188,8 @@ func (r *Report) htmlModel(enrich map[string]Enrichment) htmlModel {
 		if enrich != nil {
 			if e, ok := enrich[EnrichKey(f)]; ok {
 				hf.Explain = e.Prose
-				hf.ExplainCode = e.Code
+				hf.Before = e.Before
+				hf.After = e.After
 			}
 		}
 		if f.Sev() >= tools.SevHigh && f.Category == tools.CatSecurity {
@@ -276,7 +290,7 @@ const htmlSource = `<!doctype html>
     --accent:#2f6db0; --shadow:0 1px 3px rgba(18,22,28,.08),0 8px 24px rgba(18,22,28,.05);
     --crit:#c0392b; --high:#d15b2b; --med:#c68a12; --low:#4f7bbf; --info:#8a94a3;
     --crit-bg:#fbecea; --high-bg:#fbf0e8; --med-bg:#faf3e0; --low-bg:#eef3fb; --info-bg:#f0f2f5;
-    --ok:#3f8f5f; --chip:#eef1f5;
+    --ok:#3f8f5f; --ok-bg:#e8f2ec; --chip:#eef1f5;
   }
   @media (prefers-color-scheme:dark){
     :root{
@@ -284,7 +298,7 @@ const htmlSource = `<!doctype html>
       --accent:#5b9bd8; --shadow:0 1px 3px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
       --crit:#e5675a; --high:#e8895c; --med:#d9ab4a; --low:#7aa6e0; --info:#8793a3;
       --crit-bg:#2a1917; --high-bg:#291d15; --med-bg:#282013; --low-bg:#151f2c; --info-bg:#1a2029;
-      --ok:#63b382; --chip:#1c232d;
+      --ok:#63b382; --ok-bg:#16241c; --chip:#1c232d;
     }
   }
   :root[data-theme="light"]{
@@ -292,14 +306,14 @@ const htmlSource = `<!doctype html>
     --accent:#2f6db0; --shadow:0 1px 3px rgba(18,22,28,.08),0 8px 24px rgba(18,22,28,.05);
     --crit:#c0392b; --high:#d15b2b; --med:#c68a12; --low:#4f7bbf; --info:#8a94a3;
     --crit-bg:#fbecea; --high-bg:#fbf0e8; --med-bg:#faf3e0; --low-bg:#eef3fb; --info-bg:#f0f2f5;
-    --ok:#3f8f5f; --chip:#eef1f5;
+    --ok:#3f8f5f; --ok-bg:#e8f2ec; --chip:#eef1f5;
   }
   :root[data-theme="dark"]{
     --bg:#0e1217; --panel:#161c24; --ink:#e8edf3; --muted:#93a0b0; --line:#242d38;
     --accent:#5b9bd8; --shadow:0 1px 3px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
     --crit:#e5675a; --high:#e8895c; --med:#d9ab4a; --low:#7aa6e0; --info:#8793a3;
     --crit-bg:#2a1917; --high-bg:#291d15; --med-bg:#282013; --low-bg:#151f2c; --info-bg:#1a2029;
-    --ok:#63b382; --chip:#1c232d;
+    --ok:#63b382; --ok-bg:#16241c; --chip:#1c232d;
   }
   *{box-sizing:border-box}
   body{
@@ -402,12 +416,23 @@ const htmlSource = `<!doctype html>
   .f .explain{margin:10px 0 0; padding:10px 12px; border-radius:8px; background:var(--info-bg);
               font-size:13.5px; color:var(--ink)}
   .f .explain b{color:var(--accent)}
-  .f .explain pre.code{
-    margin:9px 0 0; padding:11px 13px; border-radius:7px; overflow-x:auto;
-    background:var(--bg); border:1px solid var(--line);
+  /* before/after diff: two stacked columns, tinted red (removed) / green (added) */
+  .diff{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px}
+  @media(max-width:640px){.diff{grid-template-columns:1fr}}
+  .d-col{border-radius:7px; overflow:hidden; border:1px solid var(--line); background:var(--bg)}
+  .d-lbl{display:block; font-size:10.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+         padding:5px 10px; color:var(--muted)}
+  .d-before .d-lbl{color:var(--crit); background:var(--crit-bg)}
+  .d-after .d-lbl{color:var(--ok); background:var(--ok-bg)}
+  .d-lbl em{font-style:normal; font-weight:500; opacity:.75; text-transform:none; letter-spacing:0}
+  .diffnote{margin:7px 0 0; font-size:11.5px; color:var(--muted); font-style:italic}
+  .d-col pre{
+    margin:0; padding:10px 12px; overflow-x:auto; white-space:pre;
     font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:12.5px;
-    line-height:1.5; color:var(--ink); white-space:pre;
+    line-height:1.5; color:var(--ink);
   }
+  footer .cost{padding:3px 9px; border-radius:999px; background:var(--chip);
+               border:1px solid var(--line); color:var(--muted); font-size:11.5px}
 
   .more{margin:14px 0 4px; font-size:13px; color:var(--muted); text-align:center;
         padding:10px; border:1px dashed var(--line); border-radius:9px}
@@ -513,7 +538,8 @@ const htmlSource = `<!doctype html>
 
   <footer>
     <span class="tf">tfforge</span>
-    <span>· deterministic audit, no LLM tokens{{if .Enriched}} (findings AI-explained on request){{end}}</span>
+    {{if .Enriched}}<span>· deterministic audit · fixes AI-explained on request</span>{{else}}<span>· deterministic audit, no LLM tokens</span>{{end}}
+    {{if .Cost}}<span class="cost">AI explain · {{.Cost.Model}} · {{.Cost.InTok}} in / {{.Cost.OutTok}} out tokens · ~${{printf "%.4f" .Cost.USD}}</span>{{end}}
   </footer>
 </div>
 </body>
@@ -527,7 +553,12 @@ const htmlSource = `<!doctype html>
     <span class="path mono">{{.File}}</span>
   </div>
   <p class="msg">{{.Message}}</p>
-  {{if .Explain}}<div class="explain"><b>Fix &middot;</b> {{.Explain}}{{if .ExplainCode}}<pre class="code">{{.ExplainCode}}</pre>{{end}}</div>{{end}}
+  {{if .Explain}}<div class="explain"><b>Fix &middot;</b> {{.Explain}}
+    {{if or .Before .After}}<div class="diff">
+      {{if .Before}}<div class="d-col d-before"><span class="d-lbl">before <em>· illustrative</em></span><pre>{{.Before}}</pre></div>{{end}}
+      {{if .After}}<div class="d-col d-after"><span class="d-lbl">after</span><pre>{{.After}}</pre></div>{{end}}
+    </div>{{if .Before}}<p class="diffnote">The “before” is an AI-reconstructed example — tfforge doesn’t read your file contents. Adapt the “after” to your actual code.</p>{{end}}{{end}}
+  </div>{{end}}
 </li>
 {{end}}
 `

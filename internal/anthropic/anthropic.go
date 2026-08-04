@@ -33,10 +33,25 @@ const (
 
 // Client talks to the Messages API. Zero value is not usable; use New.
 type Client struct {
-	apiKey  string
-	baseURL string
-	model   string
-	http    *http.Client
+	apiKey    string
+	baseURL   string
+	model     string
+	http      *http.Client
+	maxTokens int
+}
+
+// defaultMaxTokens bounds a single response. 4096 suits the agent's tool-use
+// turns, but batch jobs (e.g. `audit --explain` over many findings) need more
+// headroom or the JSON reply gets truncated at the cap — see SetMaxTokens.
+const defaultMaxTokens = 4096
+
+// SetMaxTokens overrides the per-response token cap for this client. Callers that
+// expect a large single reply (a batch of explanations) raise it so the response
+// isn't cut off mid-JSON.
+func (c *Client) SetMaxTokens(n int) {
+	if n > 0 {
+		c.maxTokens = n
+	}
 }
 
 // New builds a client from $ANTHROPIC_API_KEY (the API key is billed per token,
@@ -52,10 +67,11 @@ func New() (*Client, error) {
 		model = m
 	}
 	return &Client{
-		apiKey:  key,
-		baseURL: defaultBaseURL,
-		model:   model,
-		http:    &http.Client{Timeout: 120 * time.Second},
+		apiKey:    key,
+		baseURL:   defaultBaseURL,
+		model:     model,
+		http:      &http.Client{Timeout: 120 * time.Second},
+		maxTokens: defaultMaxTokens,
 	}, nil
 }
 
@@ -133,9 +149,13 @@ type apiError struct {
 // CreateMessage sends one request and returns the model's response. This is the
 // single primitive the agent loop calls repeatedly.
 func (c *Client) CreateMessage(ctx context.Context, system string, messages []Message, tools []Tool) (*Response, error) {
+	maxTok := c.maxTokens
+	if maxTok <= 0 {
+		maxTok = defaultMaxTokens
+	}
 	body, err := json.Marshal(request{
 		Model:     c.model,
-		MaxTokens: 4096,
+		MaxTokens: maxTok,
 		System:    system,
 		Messages:  messages,
 		Tools:     tools,

@@ -20,7 +20,7 @@ func writeFile(t *testing.T, dir, rel, content string) {
 func TestHTMLIsSelfContained(t *testing.T) {
 	root := buildRepo(t)
 	rep, _ := Audit(root)
-	html := rep.HTML(nil)
+	html := rep.HTML(nil, nil)
 
 	// A shareable report must pull NOTHING from the network — no external URLs,
 	// no CDN links, no remote fonts. (w3.org appears only in a namespace, never
@@ -41,7 +41,7 @@ func TestHTMLIsSelfContained(t *testing.T) {
 func TestHTMLEscapesContent(t *testing.T) {
 	root := buildRepo(t)
 	rep, _ := Audit(root)
-	html := rep.HTML(nil)
+	html := rep.HTML(nil, nil)
 	// The root path is user-controlled; html/template must escape, so no raw
 	// unescaped angle brackets leak from data into markup. (Smoke check: the doc
 	// parses as balanced-ish — count of "<script" is the one we wrote, at most 1.)
@@ -56,25 +56,31 @@ func TestHTMLEnrichmentShown(t *testing.T) {
 	if len(rep.Findings) == 0 {
 		t.Fatal("need findings to enrich")
 	}
-	// Enrich the first finding; the HTML must render both prose and the HCL code.
+	// Enrich the first finding with prose + a before/after diff; the HTML must
+	// render all three.
 	enrich := map[string]Enrichment{
 		EnrichKey(rep.Findings[0]): {
-			Prose: "SENTINEL_FIX_TEXT restrict the cidr_blocks",
-			Code:  "SENTINEL_CODE_BLOCK { cidr = var.allowed }",
+			Prose:  "SENTINEL_FIX_TEXT restrict the cidr_blocks",
+			Before: "SENTINEL_BEFORE cidr = \"0.0.0.0/0\"",
+			After:  "SENTINEL_AFTER cidr = var.allowed",
 		},
 	}
-	html := rep.HTML(enrich)
-	if !strings.Contains(html, "SENTINEL_FIX_TEXT") {
-		t.Error("AI enrichment prose not rendered in the HTML report")
-	}
-	if !strings.Contains(html, "SENTINEL_CODE_BLOCK") {
-		t.Error("AI enrichment code snippet not rendered in the HTML report")
+	cost := &ExplainCost{Model: "claude-test", InTok: 1200, OutTok: 340, USD: 0.0123}
+	html := rep.HTML(enrich, cost)
+	for _, want := range []string{"SENTINEL_FIX_TEXT", "SENTINEL_BEFORE", "SENTINEL_AFTER", "before", "after"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("AI enrichment: HTML missing %q", want)
+		}
 	}
 	if !strings.Contains(html, "AI-explained") {
 		t.Error("enriched report should note it was AI-explained")
 	}
+	// The FinOps cost line must show the model and the dollar figure.
+	if !strings.Contains(html, "claude-test") || !strings.Contains(html, "0.0123") {
+		t.Error("HTML footer should show the --explain token cost")
+	}
 	// Without enrichment, that note must be absent.
-	if strings.Contains(rep.HTML(nil), "AI-explained") {
+	if strings.Contains(rep.HTML(nil, nil), "AI-explained") {
 		t.Error("non-enriched report should NOT claim AI-explained")
 	}
 }
@@ -90,7 +96,7 @@ terraform {
 }
 provider "aws" { region = var.r }`)
 	rep, _ := Audit(root)
-	html := rep.HTML(nil)
+	html := rep.HTML(nil, nil)
 	if !strings.Contains(html, "healthy") {
 		t.Errorf("clean repo HTML should read healthy; got:\n%s", firstLines(html, 40))
 	}

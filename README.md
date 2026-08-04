@@ -67,10 +67,16 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
   The report is **multi-cloud aware**: it auto-detects the providers in play
   (OpenStack/OVH, AWS, GCP, Azure, Cloudflare, Datadog, Kubernetes…) and shows
   them as chips in the header. `--explain` is the *optional* AI layer: with a key
-  it adds, per finding, a concrete prose fix **plus a copy-pasteable HCL snippet**,
-  tailored to the repo's actual cloud (a Swift/OVH backend on an OpenStack repo,
-  not an AWS S3 one). Without a key it **degrades cleanly** and still writes the
-  report. Deterministic detects, the AI explains.
+  it adds, per finding, a prose fix **plus a before/after HCL diff** — the current
+  problematic code and the corrected version side by side, tailored to the repo's
+  actual cloud (a Swift/OVH backend on an OpenStack repo, not an AWS S3 one). The
+  HTML footer shows the **AI call's cost** (model + tokens + ~$) for FinOps
+  visibility. Privacy: `--explain` sends **only the findings** (file path,
+  category, severity, message) and the detected providers to the API — **never
+  your `.tf` file contents** — so the "before" is an AI-*reconstructed* example
+  (labelled illustrative), and the "after" is the idiomatic fix to adapt. Without
+  a key it **degrades cleanly** and still writes the report. Deterministic
+  detects, the AI explains.
 - **A from-scratch agent loop** — `message + tools → tool_use → guard → run →
   result → loop`, turn-bounded. Written on raw HTTP against the Anthropic
   Messages API, no framework — the ~100 lines that make an agent click. The
@@ -262,7 +268,7 @@ rollup and the detected cloud providers. Deterministic, no LLM, no key. Modes:
 | *(none)* | colored text report on stdout |
 | `--json` | machine-readable, for CI (the full, uncapped finding list) |
 | `--html [--out f]` | a **self-contained, tabbed** HTML report — one tab per category with counts, provider chips, light/dark theme, no external assets, no JS. Scales to big repos (caps ~50 findings per tab with an honest "top N of M — run `--json` for the full list" banner) |
-| `--explain` | *optional* AI layer — per finding, a prose fix **plus a copy-pasteable HCL snippet**, tailored to the repo's real cloud (needs a key; degrades cleanly without one) |
+| `--explain` | *optional* AI layer — per finding, a prose fix **plus a before/after HCL diff** tailored to the repo's real cloud; sends only findings (never file contents), so the "before" is an illustrative reconstruction. Footer shows the call's token cost. Needs a key; degrades cleanly without one |
 | `--top N` | how many findings to show in the text report (default 10) |
 | `--fail-on <sev>` | exit `1` at/above a severity (default `none` — report-only) |
 

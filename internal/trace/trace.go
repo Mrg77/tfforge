@@ -43,6 +43,15 @@ func priceFor(model string) Pricing {
 	return Pricing{InputPerM: 3, OutputPerM: 15} // sensible default
 }
 
+// EstimateCost returns the approximate USD cost of a single call with the given
+// token counts, using the same rough public rates as the run tracer. Exported so
+// one-shot callers (e.g. `audit --explain`) can price their own API call for
+// FinOps visibility, without wiring up a full Tracer.
+func EstimateCost(model string, inTok, outTok int) float64 {
+	p := priceFor(model)
+	return float64(inTok)/1e6*p.InputPerM + float64(outTok)/1e6*p.OutputPerM
+}
+
 // event is one audit-log line. Timestamps are RFC3339; kind is "turn" or "tool".
 type event struct {
 	Time     string `json:"time"`

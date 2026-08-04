@@ -75,17 +75,23 @@ func runAudit(args []string) int {
 	}
 
 	// Optional AI layer: explain the findings. Deterministic report is already
-	// built above, so if this fails we still have the full report.
+	// built above, so if this fails we still have the full report. cost carries
+	// the FinOps summary of the call, shown in the HTML footer.
 	var enrich map[string]repo.Enrichment
+	var cost *repo.ExplainCost
 	if *explain {
-		enrich = explainFindings(rep)
+		var stats *explainStats
+		enrich, stats = explainFindings(rep)
+		if stats != nil {
+			cost = &repo.ExplainCost{Model: stats.Model, InTok: stats.InTok, OutTok: stats.OutTok, USD: stats.Cost}
+		}
 	}
 
 	// Render.
 	var content string
 	switch {
 	case *asHTML:
-		content = rep.HTML(enrich)
+		content = rep.HTML(enrich, cost)
 	case *asJSON:
 		content = rep.JSON()
 	default:

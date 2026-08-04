@@ -65,10 +65,16 @@ rendent un agent digne de confiance.
   Le rapport est **multi-cloud** : il détecte automatiquement les providers en jeu
   (OpenStack/OVH, AWS, GCP, Azure, Cloudflare, Datadog, Kubernetes…) et les affiche
   en chips dans l'en-tête. `--explain` est la couche IA *optionnelle* : avec une clé,
-  elle ajoute par finding un correctif en prose **plus un bloc de code HCL
-  copier-collable**, adapté au cloud réel du repo (un backend Swift/OVH sur un repo
-  OpenStack, pas un S3 AWS). Sans clé, elle **dégrade proprement** et écrit quand
-  même le rapport. Le déterministe détecte, l'IA explique.
+  elle ajoute par finding un correctif en prose **plus un diff avant/après HCL** — le
+  code actuel problématique et la version corrigée côte à côte, adaptés au cloud réel
+  du repo (un backend Swift/OVH sur un repo OpenStack, pas un S3 AWS). Le pied du
+  rapport HTML affiche le **coût de l'appel IA** (modèle + tokens + ~$) pour la
+  visibilité FinOps. Confidentialité : `--explain` n'envoie **que les findings**
+  (chemin, catégorie, sévérité, message) et les providers détectés à l'API —
+  **jamais le contenu de tes fichiers `.tf`** — donc le « avant » est un exemple
+  *reconstitué* par l'IA (marqué « illustrative ») et le « après » est le correctif
+  idiomatique à adapter. Sans clé, elle **dégrade proprement** et écrit quand même le
+  rapport. Le déterministe détecte, l'IA explique.
 - **Une boucle agentique from-scratch** — `message + outils → tool_use → garde →
   exécute → résultat → boucle`, bornée. Écrite en HTTP brut sur l'API Anthropic
   Messages, sans framework — les ~100 lignes qui font le déclic. Le client du
@@ -271,7 +277,7 @@ providers détectés. Déterministe, sans LLM, sans clé. Modes :
 | *(aucun)* | rapport texte coloré sur stdout |
 | `--json` | lisible par machine, pour la CI (la liste complète des findings, non plafonnée) |
 | `--html [--out f]` | un rapport HTML **autonome à onglets** — un onglet par catégorie avec compteurs, chips providers, thème clair/sombre, aucune ressource externe, zéro JS. Passe l'échelle des gros repos (plafonne ~50 findings par onglet avec une bannière honnête « top N sur M — lance `--json` pour la liste complète ») |
-| `--explain` | couche IA *optionnelle* — par finding, un correctif en prose **plus un bloc de code HCL copier-collable**, adapté au cloud réel du repo (clé requise ; dégrade proprement sans clé) |
+| `--explain` | couche IA *optionnelle* — par finding, un correctif en prose **plus un diff avant/après HCL** adapté au cloud réel du repo ; n'envoie que les findings (jamais le contenu des fichiers), donc le « avant » est une reconstitution illustrative. Le pied de page affiche le coût en tokens de l'appel. Clé requise ; dégrade proprement sans clé |
 | `--top N` | combien de findings afficher dans le rapport texte (défaut 10) |
 | `--fail-on <sev>` | sort `1` au seuil de sévérité (défaut `none` — report-only) |
 
