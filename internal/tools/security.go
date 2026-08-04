@@ -60,7 +60,8 @@ func (SecurityScanTool) Name() string   { return "security_scan" }
 func (SecurityScanTool) Danger() Danger { return ReadOnly }
 func (SecurityScanTool) Description() string {
 	return "Statically scan the Terraform code in a working directory for security issues " +
-		"(uses checkov, trivy, or tfsec — whichever is installed) and add a provider-aware " +
+		"(uses checkov, trivy, or tfsec — whichever is installed), plus tflint for deprecations " +
+		"and Terraform best practices (its rules track HashiCorp's updates), and a provider-aware " +
 		"check for classic risks (wildcard IAM permissions, public S3 buckets, missing " +
 		"encryption). Read-only. Use this after validate; if it reports issues, FIX the code " +
 		"and scan again until it is clean."
@@ -81,17 +82,44 @@ func (SecurityScanTool) Run(ctx context.Context, input json.RawMessage) (string,
 	var b strings.Builder
 	scanner, out := runBestScanner(ctx, dir)
 	if scanner == "" {
-		fmt.Fprintln(&b, "No IaC security scanner found (install one of: checkov, trivy, tfsec).")
-		fmt.Fprintln(&b, "Tip: `opsforge install checkov` — running the provider-aware heuristics only.")
+		fmt.Fprintln(&b, "No IaC security scanner found (install one of: checkov, trivy, tfsec; tflint for deprecations).")
+		fmt.Fprintln(&b, "Tip: `opsforge install checkov tflint` — running the provider-aware heuristics only for now.")
 	} else {
 		fmt.Fprintf(&b, "=== %s ===\n%s\n", scanner, strings.TrimSpace(out))
 	}
 
-	// Always run the lightweight provider-aware pass on top.
+	// tflint runs IN ADDITION to the security scanner: it catches deprecations
+	// and Terraform/provider best practices that checkov doesn't — and, crucially,
+	// its rules are maintained by HashiCorp's ecosystem, so this stays current with
+	// new deprecations WITHOUT tfforge shipping new code. This is the durable
+	// answer to "Terraform keeps changing": we lean on the tool that tracks it.
+	if tf := runTFLint(ctx, dir); tf != "" {
+		fmt.Fprintf(&b, "\n=== tflint (deprecations + best practices, auto-updated) ===\n%s\n", tf)
+	}
+
+	// Our own provider-aware pass on top (the high-signal security rules).
 	if iam := analyzeTerraformDir(dir); iam != "" {
 		fmt.Fprintf(&b, "\n=== provider-aware checks (tfforge) ===\n%s\n", iam)
 	}
 	return b.String(), nil
+}
+
+// runTFLint runs tflint if installed. It returns issues (deprecations, best
+// practices) as text, or "" when tflint is absent or the tree is clean. tflint's
+// rules — especially the provider plugins — are community-maintained and updated
+// as HashiCorp deprecates things, so tfforge stays current for free.
+func runTFLint(ctx context.Context, dir string) string {
+	if _, err := exec.LookPath("tflint"); err != nil {
+		return "" // not installed — silently skip (checkov + our rules still ran)
+	}
+	// --chdir keeps tflint scoped to dir; --no-color for clean text. A non-zero
+	// exit means issues were found (the signal), not an error, so we ignore it.
+	out, _ := exec.CommandContext(ctx, "tflint", "--chdir="+dir, "--no-color").CombinedOutput()
+	s := strings.TrimSpace(string(out))
+	if s == "" || strings.Contains(s, "0 issue") {
+		return ""
+	}
+	return s
 }
 
 // runBestScanner tries the installed scanners in order of preference and returns

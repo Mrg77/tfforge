@@ -76,7 +76,11 @@ rendent un agent digne de confiance.
     (règles NSG ouvertes, blob public, HTTPS désactivé, vieux TLS) ;
   - **version** — syntaxe dépréciée (inline S3 `acl`/`versioning`/chiffrement sur le
     provider moderne), provider AWS périmé (v3 ou moins), `required_version` absent
-    ou pré-1.0 — l'agent modernise le code, pas seulement le sécurise ;
+    ou pré-1.0 — l'agent modernise le code, pas seulement le sécurise. En plus des
+    règles maison, `security_scan` lance **tflint** s'il est installé, dont les
+    règles sont **maintenues par l'écosystème HashiCorp** — donc tfforge continue de
+    signaler les *nouvelles* déprécations à mesure que Terraform évolue, sans que
+    j'écrive de nouveau code ;
   - **best-practice** — région du provider hard-codée, `required_providers` absent,
     fichier multi-ressources sans backend distant.
 

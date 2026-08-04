@@ -77,7 +77,10 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
     long-lived SA keys) and **Azure** (open NSG rules, public blob, HTTPS off, old TLS);
   - **version** — deprecated syntax (inline S3 `acl`/`versioning`/encryption on the
     modern provider), an outdated AWS provider (v3 or older), a missing or pre-1.0
-    `required_version` — so the agent modernizes code, not just secures it;
+    `required_version` — so the agent modernizes code, not just secures it. On top
+    of the built-in rules, `security_scan` runs **tflint** when installed, whose
+    rules are **maintained by HashiCorp's ecosystem** — so tfforge keeps flagging
+    *new* deprecations as Terraform evolves, without shipping new code;
   - **best-practice** — a hard-coded provider region, missing `required_providers`,
     a multi-resource file with no remote backend.
 
