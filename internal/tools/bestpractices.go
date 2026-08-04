@@ -101,10 +101,27 @@ func checkBestPractices(file, src string) []Finding {
 			`no required_providers block — pin provider sources/versions in terraform{ required_providers {} } for reproducible builds.`))
 	}
 
-	// A multi-resource file with local state only (no remote backend) — fine for
-	// a demo, worth noting for anything shared/production.
-	if countMatches(reResourceCount, src) >= 3 && !reBackend.MatchString(src) {
-		out = append(out, findingCat(file, CatBestPractice, SevInfo,
+	// NOTE: the "no remote backend" check is deliberately NOT here. A backend is a
+	// property of a root MODULE (a whole directory), declared once — never per
+	// file, and never in a child module at all. Checking it per file produced
+	// false positives on every child module (e.g. monitors/redis). It now lives
+	// in checkDirBestPractices, which sees the whole directory. See analyze.go.
+	return out
+}
+
+// checkDirBestPractices runs the best-practice checks that need WHOLE-DIRECTORY
+// context, not a single file. Terraform resolves a module (a directory) as a
+// unit: the backend, the provider config, and required_version belong to the
+// directory, so judging them file-by-file is wrong. dirSrc is every .tf file in
+// the directory concatenated; hasProvider says whether any file configures a
+// provider (i.e. this looks like a ROOT module, not a child module).
+func checkDirBestPractices(dir, dirSrc string, hasProvider bool) []Finding {
+	var out []Finding
+	// A remote backend only makes sense for a ROOT module (one with provider
+	// config and enough resources to have real state). A child module never
+	// declares a backend, so flagging its absence there is a false positive.
+	if hasProvider && countMatches(reResourceCount, dirSrc) >= 3 && !reBackend.MatchString(dirSrc) {
+		out = append(out, findingCat(dir, CatBestPractice, SevInfo,
 			`no remote backend configured — local state doesn't lock or share. Add a backend (s3+dynamodb, etc.) for team/production use.`))
 	}
 	return out

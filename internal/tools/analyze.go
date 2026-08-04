@@ -69,6 +69,8 @@ func (f Finding) Sev() Severity { return f.sev }
 func AnalyzeDir(dir string) []Finding {
 	files, _ := filepath.Glob(filepath.Join(dir, "*.tf"))
 	var findings []Finding
+	var dirSrc strings.Builder // all .tf in this dir, for whole-directory checks
+	hasProvider := false
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
@@ -76,6 +78,11 @@ func AnalyzeDir(dir string) []Finding {
 		}
 		src := string(data)
 		base := filepath.Base(f)
+		dirSrc.WriteString(src)
+		dirSrc.WriteByte('\n')
+		if strings.Contains(src, "provider \"") {
+			hasProvider = true
+		}
 		findings = append(findings, checkIAMWildcard(base, src)...)
 		findings = append(findings, checkIAMFine(base, src)...)
 		findings = append(findings, checkS3Public(base, src)...)
@@ -89,6 +96,11 @@ func AnalyzeDir(dir string) []Finding {
 		findings = append(findings, checkAzure(base, src)...)         // Azure rules
 		findings = append(findings, checkVersions(base, src)...)      // outdated/deprecated TF & providers
 		findings = append(findings, checkBestPractices(base, src)...) // objective best practices
+	}
+	// Whole-directory checks (backend, etc.): a module is resolved as a unit, so
+	// these can't be judged file-by-file. Tag the finding with the directory name.
+	if len(files) > 0 {
+		findings = append(findings, checkDirBestPractices(filepath.Base(dir)+"/", dirSrc.String(), hasProvider)...)
 	}
 	return findings
 }

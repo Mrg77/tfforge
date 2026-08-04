@@ -75,7 +75,8 @@ func main() {
 	if len(os.Args) < 2 || strings.TrimSpace(strings.Join(os.Args[1:], " ")) == "" {
 		fmt.Fprintln(os.Stderr, "usage:")
 		fmt.Fprintln(os.Stderr, "  tfforge \"<task>\"                 run the AI agent on a task (needs ANTHROPIC_API_KEY)")
-		fmt.Fprintln(os.Stderr, "  tfforge scan <dir> [--json]      deterministic security scan, no LLM — gates CI via exit code")
+		fmt.Fprintln(os.Stderr, "  tfforge audit <repo> [--json]    prioritized health report of an EXISTING repo, no LLM")
+		fmt.Fprintln(os.Stderr, "  tfforge scan <dir> [--json]      deterministic security scan of one dir, no LLM — gates CI")
 		fmt.Fprintln(os.Stderr, "  tfforge version")
 		os.Exit(2)
 	}
@@ -84,6 +85,10 @@ func main() {
 	case "version", "--version", "-v":
 		fmt.Println("tfforge", version)
 		return
+	case "audit":
+		// Adopt an existing repo: walk the whole tree, prioritized health report.
+		// Deterministic, no LLM.
+		os.Exit(runAudit(os.Args[2:]))
 	case "scan":
 		// The CI subcommand: deterministic, no LLM, no API key. Exits non-zero
 		// on findings so it can gate a pipeline.

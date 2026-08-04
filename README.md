@@ -48,6 +48,23 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
 
 ## What it does
 
+- **It adopts a repo you already have.** `tfforge audit <repo>` walks a *whole*
+  existing Terraform repository — every module and environment — runs the
+  deterministic analysis per directory, and prints a **prioritized health
+  report**: the worst things first, grouped by category, with a per-directory
+  rollup of *where the debt concentrates*. No blank-file demo — this is the
+  daily-work case (you inherit a repo and ask "where do I start?"). It costs
+  **zero tokens** (no LLM), so it also gates CI, and it emits a **self-contained,
+  shareable HTML report** you can open in a browser or attach to a review:
+  ```sh
+  tfforge audit ./infra                                   # prioritized text report
+  tfforge audit ./infra --html --out health.html          # a shareable deliverable
+  tfforge audit ./infra --json --fail-on high             # gate CI (exit ≠ 0)
+  tfforge audit ./infra --html --explain --out health.html  # + AI-written fixes (opt-in, needs a key)
+  ```
+  `--explain` is the *optional* AI layer: with a key it adds a concrete modern-fix
+  line to each finding; without one it **degrades cleanly** and still writes the
+  report. Deterministic detects, the AI explains.
 - **A from-scratch agent loop** — `message + tools → tool_use → guard → run →
   result → loop`, turn-bounded. Written on raw HTTP against the Anthropic
   Messages API, no framework — the ~100 lines that make an agent click. The
@@ -154,6 +171,11 @@ go build -o tfforge .
 
 # 6. CI mode — no LLM, no key. Exits non-zero on findings → gate a pipeline.
 ./tfforge scan ./examples/insecure --json --fail-on high
+
+# 7. Adopt an EXISTING repo — prioritized health report (no LLM), then a
+#    shareable HTML deliverable you can open or attach.
+./tfforge audit ./examples
+./tfforge audit ./examples --html --out health.html
 ```
 
 Each run prints a summary: `run summary · N turns · … tokens · M tool call(s)
@@ -190,7 +212,7 @@ the plan parser (replace both orders, big-plan truncation), and cost/audit.
 
 | Env var | Effect |
 |---|---|
-| `ANTHROPIC_API_KEY` | required for the agent — the API key (billed per token). Not needed for `scan`. |
+| `ANTHROPIC_API_KEY` | required for the agent — the API key (billed per token). Not needed for `scan` or `audit` (only `audit --explain` uses it). |
 | `TFFORGE_MODEL` | override the model (default `claude-sonnet-4-5`; `claude-haiku-4-5` is ~3× cheaper) |
 | `TFFORGE_MAX_COST` | stop the run before it exceeds this USD budget (e.g. `0.50`) |
 | `TFFORGE_AUDIT` | `off` to disable the audit file, or a path to redirect it |
@@ -208,6 +230,29 @@ GitHub Actions gate:
 
 ```yaml
 - run: go build -o tfforge . && ./tfforge scan ./infra --fail-on high
+```
+
+### Audit an existing repo (`audit`)
+
+```
+tfforge audit <repo> [--json] [--html] [--out FILE] [--explain] [--top N] [--fail-on <sev>]
+```
+
+Walks the whole repo, analyzes every directory (module / environment), and
+produces a **prioritized** health report — worst-first, by category, with a
+per-directory rollup. Deterministic, no LLM, no key. Modes:
+
+| Flag | Output |
+|---|---|
+| *(none)* | colored text report on stdout |
+| `--json` | machine-readable, for CI |
+| `--html [--out f]` | a **self-contained**, shareable HTML report (no external assets) |
+| `--explain` | *optional* AI layer — a concrete modern-fix line per finding (needs a key; degrades cleanly without one) |
+| `--fail-on <sev>` | exit `1` at/above a severity (default `none` — report-only) |
+
+```yaml
+# Fail the build only on High+ across the whole repo:
+- run: go build -o tfforge . && ./tfforge audit ./infra --fail-on high
 ```
 
 ---

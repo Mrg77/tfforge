@@ -46,6 +46,23 @@ rendent un agent digne de confiance.
 
 ## Ce qu'il fait
 
+- **Il adopte un repo que tu as déjà.** `tfforge audit <repo>` parcourt un dépôt
+  Terraform *existant* en entier — chaque module, chaque environnement — lance
+  l'analyse déterministe par dossier, et affiche un **rapport de santé priorisé** :
+  les trucs urgents d'abord, groupés par catégorie, avec un récap par dossier de
+  *où se concentre la dette*. Pas une démo sur fichier vide — c'est le cas du
+  quotidien (tu hérites d'un repo et tu demandes « par où je commence ? »). **Zéro
+  token** (pas de LLM), donc ça gate aussi la CI, et ça génère un **rapport HTML
+  autonome et partageable** que tu ouvres dans un navigateur ou joins à une revue :
+  ```sh
+  tfforge audit ./infra                                   # rapport texte priorisé
+  tfforge audit ./infra --html --out sante.html           # un livrable partageable
+  tfforge audit ./infra --json --fail-on high             # gate la CI (exit ≠ 0)
+  tfforge audit ./infra --html --explain --out sante.html   # + correctifs écrits par l'IA (option, clé requise)
+  ```
+  `--explain` est la couche IA *optionnelle* : avec une clé, elle ajoute un
+  correctif moderne concret à chaque finding ; sans clé, elle **dégrade
+  proprement** et écrit quand même le rapport. Le déterministe détecte, l'IA explique.
 - **Une boucle agentique from-scratch** — `message + outils → tool_use → garde →
   exécute → résultat → boucle`, bornée. Écrite en HTTP brut sur l'API Anthropic
   Messages, sans framework — les ~100 lignes qui font le déclic. Le client du
@@ -157,6 +174,11 @@ go build -o tfforge .
 
 # 6. Mode CI — sans LLM, sans clé. Sort non-zéro sur findings → gate un pipeline.
 ./tfforge scan ./examples/insecure --json --fail-on high
+
+# 7. Adopter un repo EXISTANT — rapport de santé priorisé (sans LLM), puis un
+#    livrable HTML partageable que tu ouvres ou joins.
+./tfforge audit ./examples
+./tfforge audit ./examples --html --out sante.html
 ```
 
 Chaque run affiche un résumé : `run summary · N turns · … tokens · M tool call(s)
@@ -197,7 +219,7 @@ coût/audit.
 
 | Variable | Effet |
 |---|---|
-| `ANTHROPIC_API_KEY` | requise pour l'agent — la clé API (facturée au token). Pas nécessaire pour `scan`. |
+| `ANTHROPIC_API_KEY` | requise pour l'agent — la clé API (facturée au token). Pas nécessaire pour `scan` ni `audit` (seul `audit --explain` l'utilise). |
 | `TFFORGE_MODEL` | change le modèle (défaut `claude-sonnet-4-5` ; `claude-haiku-4-5` ~3× moins cher) |
 | `TFFORGE_MAX_COST` | arrête le run avant de dépasser ce budget USD (ex. `0.50`) |
 | `TFFORGE_AUDIT` | `off` pour désactiver le journal, ou un chemin pour le rediriger |
@@ -215,6 +237,29 @@ Exemple de gate GitHub Actions :
 
 ```yaml
 - run: go build -o tfforge . && ./tfforge scan ./infra --fail-on high
+```
+
+### Auditer un repo existant (`audit`)
+
+```
+tfforge audit <repo> [--json] [--html] [--out FICHIER] [--explain] [--top N] [--fail-on <sev>]
+```
+
+Parcourt tout le repo, analyse chaque dossier (module / environnement), et produit
+un rapport de santé **priorisé** — pire d'abord, par catégorie, avec un récap par
+dossier. Déterministe, sans LLM, sans clé. Modes :
+
+| Flag | Sortie |
+|---|---|
+| *(aucun)* | rapport texte coloré sur stdout |
+| `--json` | lisible par machine, pour la CI |
+| `--html [--out f]` | un rapport HTML **autonome** et partageable (aucune ressource externe) |
+| `--explain` | couche IA *optionnelle* — un correctif moderne concret par finding (clé requise ; dégrade proprement sans clé) |
+| `--fail-on <sev>` | sort `1` au seuil de sévérité (défaut `none` — report-only) |
+
+```yaml
+# Ne casser le build que sur High+ à l'échelle du repo :
+- run: go build -o tfforge . && ./tfforge audit ./infra --fail-on high
 ```
 
 ---

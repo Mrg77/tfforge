@@ -92,10 +92,20 @@ func emitJSON(dir string, findings []tools.Finding, max tools.Severity) {
 	fmt.Println(string(out))
 }
 
+// valueFlags are the flags across scan/audit that take a SEPARATE value token
+// (`--flag value`). splitDirAndFlags must keep that value with the flags so it
+// isn't captured as the positional <dir>. The `--flag=value` form is a single
+// token and never needs listing here.
+var valueFlags = map[string]bool{
+	"--fail-on": true, "-fail-on": true,
+	"--top": true, "-top": true,
+	"--out": true, "-out": true,
+}
+
 // splitDirAndFlags separates the single positional <dir> argument from the
 // flags, so they can appear in any order (`scan dir --json` or `scan --json dir`).
 // Returns the dir and the remaining flag args. A flag that takes a value
-// (--fail-on X) is handled by leaving both tokens in rest for flag to parse.
+// (see valueFlags) is handled by leaving both tokens in rest for flag to parse.
 func splitDirAndFlags(args []string) (dir string, rest []string) {
 	skipNext := false
 	for i, a := range args {
@@ -106,8 +116,11 @@ func splitDirAndFlags(args []string) (dir string, rest []string) {
 		}
 		if len(a) > 0 && a[0] == '-' {
 			rest = append(rest, a)
-			// --fail-on takes a separate value token; keep it with the flags.
-			if a == "--fail-on" || a == "-fail-on" {
+			// Flags that take a SEPARATE value token (e.g. `--fail-on high`,
+			// `--top 20`, `--out f.html`): keep the next token with the flags so
+			// it isn't mistaken for the positional <dir>. `--flag=value` is one
+			// token and doesn't need this.
+			if valueFlags[a] {
 				skipNext = true
 			}
 			continue
