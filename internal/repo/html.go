@@ -426,6 +426,7 @@ const htmlSource = `<!doctype html>
   .d-after .d-lbl{color:var(--ok); background:var(--ok-bg)}
   .d-lbl em{font-style:normal; font-weight:500; opacity:.75; text-transform:none; letter-spacing:0}
   .diffnote{margin:7px 0 0; font-size:11.5px; color:var(--muted); font-style:italic}
+  .diffnote code{font-style:normal; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px}
   .d-col pre{
     margin:0; padding:10px 12px; overflow-x:auto; white-space:pre;
     font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:12.5px;
@@ -557,7 +558,7 @@ const htmlSource = `<!doctype html>
     {{if or .Before .After}}<div class="diff">
       {{if .Before}}<div class="d-col d-before"><span class="d-lbl">before <em>· illustrative</em></span><pre>{{.Before}}</pre></div>{{end}}
       {{if .After}}<div class="d-col d-after"><span class="d-lbl">after</span><pre>{{.After}}</pre></div>{{end}}
-    </div>{{if .Before}}<p class="diffnote">The “before” is an AI-reconstructed example — tfforge doesn’t read your file contents. Adapt the “after” to your actual code.</p>{{end}}{{end}}
+    </div>{{if .Before}}<p class="diffnote">The scan reads your files locally, but <code>--explain</code> sends only the findings to the AI — not your file contents — so this “before” is an illustrative reconstruction. Adapt the “after” to your actual code.</p>{{end}}{{end}}
   </div>{{end}}
 </li>
 {{end}}
