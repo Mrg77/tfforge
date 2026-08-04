@@ -49,20 +49,26 @@ rendent un agent digne de confiance.
 - **Il adopte un repo que tu as déjà.** `tfforge audit <repo>` parcourt un dépôt
   Terraform *existant* en entier — chaque module, chaque environnement — lance
   l'analyse déterministe par dossier, et affiche un **rapport de santé priorisé** :
-  les trucs urgents d'abord, groupés par catégorie, avec un récap par dossier de
-  *où se concentre la dette*. Pas une démo sur fichier vide — c'est le cas du
-  quotidien (tu hérites d'un repo et tu demandes « par où je commence ? »). **Zéro
-  token** (pas de LLM), donc ça gate aussi la CI, et ça génère un **rapport HTML
-  autonome et partageable** que tu ouvres dans un navigateur ou joins à une revue :
+  les trucs urgents d'abord, sur **cinq catégories** (sécurité, version/dépréciation,
+  best-practice, **structure**, **variables**), avec un récap par dossier de *où se
+  concentre la dette*. Pas une démo sur fichier vide — c'est le cas du quotidien
+  (tu hérites d'un repo et tu demandes « par où je commence ? »). **Zéro token**
+  (pas de LLM), donc ça gate aussi la CI, et ça génère un **rapport HTML autonome
+  et partageable** — un livrable **à onglets** (un onglet par catégorie, chacun
+  compté) que tu ouvres dans un navigateur ou joins à une revue :
   ```sh
   tfforge audit ./infra                                   # rapport texte priorisé
-  tfforge audit ./infra --html --out sante.html           # un livrable partageable
+  tfforge audit ./infra --html --out sante.html           # un livrable à onglets, partageable
   tfforge audit ./infra --json --fail-on high             # gate la CI (exit ≠ 0)
   tfforge audit ./infra --html --explain --out sante.html   # + correctifs écrits par l'IA (option, clé requise)
   ```
-  `--explain` est la couche IA *optionnelle* : avec une clé, elle ajoute un
-  correctif moderne concret à chaque finding ; sans clé, elle **dégrade
-  proprement** et écrit quand même le rapport. Le déterministe détecte, l'IA explique.
+  Le rapport est **multi-cloud** : il détecte automatiquement les providers en jeu
+  (OpenStack/OVH, AWS, GCP, Azure, Cloudflare, Datadog, Kubernetes…) et les affiche
+  en chips dans l'en-tête. `--explain` est la couche IA *optionnelle* : avec une clé,
+  elle ajoute par finding un correctif en prose **plus un bloc de code HCL
+  copier-collable**, adapté au cloud réel du repo (un backend Swift/OVH sur un repo
+  OpenStack, pas un S3 AWS). Sans clé, elle **dégrade proprement** et écrit quand
+  même le rapport. Le déterministe détecte, l'IA explique.
 - **Une boucle agentique from-scratch** — `message + outils → tool_use → garde →
   exécute → résultat → boucle`, bornée. Écrite en HTTP brut sur l'API Anthropic
   Messages, sans framework — les ~100 lignes qui font le déclic. Le client du
@@ -79,7 +85,9 @@ rendent un agent digne de confiance.
   Azure) ; le reste passe par checkov + l'agent + la garde.
 - **Il sécurise — et modernise — ce qu'il construit.** `security_scan` utilise le
   meilleur scanner installé (**checkov** en priorité, puis trivy, puis tfsec) plus
-  une **passe déterministe provider-aware** qui signale en trois catégories :
+  une **passe déterministe provider-aware** qui signale en cinq catégories
+  (`audit` les remonte toutes les cinq ; la boucle de build se concentre sur les
+  trois premières) :
   - **security** — IAM wildcard, S3 public (ACL **ou** une bucket policy
     `Principal "*"`), chiffrement absent (S3, RDS/Aurora, Redshift, EBS, EFS),
     SSH/RDP ouvert au monde (IPv4 **et** IPv6 `::/0`), ingress/egress grand ouvert,
@@ -98,8 +106,16 @@ rendent un agent digne de confiance.
     règles sont **maintenues par l'écosystème HashiCorp** — donc tfforge continue de
     signaler les *nouvelles* déprécations à mesure que Terraform évolue, sans que
     j'écrive de nouveau code ;
-  - **best-practice** — région du provider hard-codée, `required_providers` absent,
-    fichier multi-ressources sans backend distant.
+  - **best-practice** — région **ou location** du provider hard-codée (provider-
+    agnostique : attrape AWS `us-east-1`, OVH `GRA7`, GCP `us-central1`, Azure
+    `westeurope` de la même façon, pas juste AWS), `required_providers` absent, un
+    module racine sans backend distant ;
+  - **structure** — le même type de ressource copié-collé ≥4× sans
+    `count`/`for_each` (une répétition qui appelle un `for_each` ou un module
+    extrait pour rester DRY — ex. 14 blocs `datadog_monitor` quasi identiques) ;
+  - **variables** — des variables déclarées sans `type` (une mauvaise valeur
+    devrait échouer tôt, au plan) ou sans `description` (des inputs
+    auto-documentés).
 
   L'agent scanne, corrige (chirurgicalement avec `edit_file`, pas une réécriture),
   et **re-scanne jusqu'à ce que ce soit propre**.
@@ -246,16 +262,21 @@ tfforge audit <repo> [--json] [--html] [--out FICHIER] [--explain] [--top N] [--
 ```
 
 Parcourt tout le repo, analyse chaque dossier (module / environnement), et produit
-un rapport de santé **priorisé** — pire d'abord, par catégorie, avec un récap par
-dossier. Déterministe, sans LLM, sans clé. Modes :
+un rapport de santé **priorisé** — pire d'abord, sur cinq catégories (sécurité,
+version, best-practice, structure, variables), avec un récap par dossier et les
+providers détectés. Déterministe, sans LLM, sans clé. Modes :
 
 | Flag | Sortie |
 |---|---|
 | *(aucun)* | rapport texte coloré sur stdout |
-| `--json` | lisible par machine, pour la CI |
-| `--html [--out f]` | un rapport HTML **autonome** et partageable (aucune ressource externe) |
-| `--explain` | couche IA *optionnelle* — un correctif moderne concret par finding (clé requise ; dégrade proprement sans clé) |
+| `--json` | lisible par machine, pour la CI (la liste complète des findings, non plafonnée) |
+| `--html [--out f]` | un rapport HTML **autonome à onglets** — un onglet par catégorie avec compteurs, chips providers, thème clair/sombre, aucune ressource externe, zéro JS. Passe l'échelle des gros repos (plafonne ~50 findings par onglet avec une bannière honnête « top N sur M — lance `--json` pour la liste complète ») |
+| `--explain` | couche IA *optionnelle* — par finding, un correctif en prose **plus un bloc de code HCL copier-collable**, adapté au cloud réel du repo (clé requise ; dégrade proprement sans clé) |
+| `--top N` | combien de findings afficher dans le rapport texte (défaut 10) |
 | `--fail-on <sev>` | sort `1` au seuil de sévérité (défaut `none` — report-only) |
+
+> `--explain` coûte des tokens (un seul appel API groupé pour tout le rapport) ;
+> tous les autres modes sont gratuits.
 
 ```yaml
 # Ne casser le build que sur High+ à l'échelle du repo :

@@ -40,6 +40,23 @@ provider "aws" { region = var.r }`)
 	return root
 }
 
+func TestCloudContextDetectsProvidersNotComments(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "main.tf"), []byte(
+		"# we used to use provider \"aws\" here\nprovider \"openstack\" {}\nprovider \"cloudflare\" {}\n"), 0o644)
+	rep, err := Audit(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := rep.CloudContext()
+	if !strings.Contains(ctx, "OpenStack") {
+		t.Errorf("CloudContext should name OpenStack; got %q", ctx)
+	}
+	if strings.Contains(ctx, "AWS") {
+		t.Errorf("a provider named only in a comment must NOT appear as a cloud; got %q", ctx)
+	}
+}
+
 func TestAuditWalksRecursively(t *testing.T) {
 	root := buildRepo(t)
 	rep, err := Audit(root)

@@ -39,13 +39,26 @@ func (r *Report) Text(topN int, color bool) string {
 		return b.String()
 	}
 
-	// Verdict line: counts by severity + by category.
+	// Verdict line: counts by category (only non-zero ones, so the line stays
+	// readable whatever the repo contains).
 	cat := r.CategoryCounts()
-	fmt.Fprintf(&b, "\n  %s  %s  %s\n",
-		c(red, fmt.Sprintf("%d security", cat[tools.CatSecurity])),
-		c(yellow, fmt.Sprintf("%d version/deprecation", cat[tools.CatVersion])),
-		c(dim, fmt.Sprintf("%d best-practice", cat[tools.CatBestPractice])),
-	)
+	type catLine struct {
+		cat   tools.Category
+		label string
+		color string
+	}
+	for _, cl := range []catLine{
+		{tools.CatSecurity, "security", red},
+		{tools.CatVersion, "version/deprecation", yellow},
+		{tools.CatStructure, "structure", yellow},
+		{tools.CatVariables, "variables", dim},
+		{tools.CatBestPractice, "best-practice", dim},
+	} {
+		if n := cat[cl.cat]; n > 0 {
+			fmt.Fprintf(&b, "  %s", c(cl.color, fmt.Sprintf("%d %s", n, cl.label)))
+		}
+	}
+	b.WriteString("\n")
 
 	// The prioritized "start here" list.
 	fmt.Fprintf(&b, "\n  %s\n", c(bold, fmt.Sprintf("Fix these first (top %d of %d):", min(topN, len(r.Findings)), len(r.Findings))))

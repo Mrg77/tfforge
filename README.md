@@ -51,19 +51,25 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
 - **It adopts a repo you already have.** `tfforge audit <repo>` walks a *whole*
   existing Terraform repository — every module and environment — runs the
   deterministic analysis per directory, and prints a **prioritized health
-  report**: the worst things first, grouped by category, with a per-directory
-  rollup of *where the debt concentrates*. No blank-file demo — this is the
-  daily-work case (you inherit a repo and ask "where do I start?"). It costs
-  **zero tokens** (no LLM), so it also gates CI, and it emits a **self-contained,
-  shareable HTML report** you can open in a browser or attach to a review:
+  report**: the worst things first, across **five categories** (security,
+  version/deprecation, best-practice, **structure**, **variables**), with a
+  per-directory rollup of *where the debt concentrates*. No blank-file demo —
+  this is the daily-work case (you inherit a repo and ask "where do I start?").
+  It costs **zero tokens** (no LLM), so it also gates CI, and it emits a
+  **self-contained, shareable HTML report** — a **tabbed** deliverable (one tab
+  per category, each counted) you can open in a browser or attach to a review:
   ```sh
   tfforge audit ./infra                                   # prioritized text report
-  tfforge audit ./infra --html --out health.html          # a shareable deliverable
+  tfforge audit ./infra --html --out health.html          # a tabbed, shareable deliverable
   tfforge audit ./infra --json --fail-on high             # gate CI (exit ≠ 0)
   tfforge audit ./infra --html --explain --out health.html  # + AI-written fixes (opt-in, needs a key)
   ```
-  `--explain` is the *optional* AI layer: with a key it adds a concrete modern-fix
-  line to each finding; without one it **degrades cleanly** and still writes the
+  The report is **multi-cloud aware**: it auto-detects the providers in play
+  (OpenStack/OVH, AWS, GCP, Azure, Cloudflare, Datadog, Kubernetes…) and shows
+  them as chips in the header. `--explain` is the *optional* AI layer: with a key
+  it adds, per finding, a concrete prose fix **plus a copy-pasteable HCL snippet**,
+  tailored to the repo's actual cloud (a Swift/OVH backend on an OpenStack repo,
+  not an AWS S3 one). Without a key it **degrades cleanly** and still writes the
   report. Deterministic detects, the AI explains.
 - **A from-scratch agent loop** — `message + tools → tool_use → guard → run →
   result → loop`, turn-bounded. Written on raw HTTP against the Anthropic
@@ -81,7 +87,8 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
   Azure); everything else still gets checkov + the agent + the guard.
 - **It secures — and modernizes — what it builds.** `security_scan` uses the best
   installed scanner (**checkov** preferred, then trivy, then tfsec) plus a
-  **deterministic provider-aware pass** that flags issues in three categories:
+  **deterministic provider-aware pass** that flags issues in five categories
+  (`audit` surfaces all five; the build loop focuses on the first three):
   - **security** — wildcard IAM, public S3 (ACL **or** a `Principal "*"` bucket
     policy), missing encryption (S3, RDS/Aurora, Redshift, EBS, EFS), SSH/RDP open
     to the world (IPv4 **and** IPv6 `::/0`), wide-open ingress/egress,
@@ -98,8 +105,15 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
     of the built-in rules, `security_scan` runs **tflint** when installed, whose
     rules are **maintained by HashiCorp's ecosystem** — so tfforge keeps flagging
     *new* deprecations as Terraform evolves, without shipping new code;
-  - **best-practice** — a hard-coded provider region, missing `required_providers`,
-    a multi-resource file with no remote backend.
+  - **best-practice** — a hard-coded provider region **or location** (provider-
+    agnostic: it catches AWS `us-east-1`, OVH `GRA7`, GCP `us-central1`, Azure
+    `westeurope` alike, not just AWS), missing `required_providers`, a root module
+    with no remote backend;
+  - **structure** — the same resource type copy-pasted ≥4× with no
+    `count`/`for_each` (repetition that wants a `for_each` or an extracted module
+    to stay DRY — e.g. 14 near-identical `datadog_monitor` blocks);
+  - **variables** — declared variables with no `type` (a bad value should fail
+    fast at plan time) or no `description` (self-documenting inputs).
 
   The agent scans, fixes (surgically with `edit_file`, not a full rewrite), and
   **re-scans until clean**.
@@ -239,16 +253,21 @@ tfforge audit <repo> [--json] [--html] [--out FILE] [--explain] [--top N] [--fai
 ```
 
 Walks the whole repo, analyzes every directory (module / environment), and
-produces a **prioritized** health report — worst-first, by category, with a
-per-directory rollup. Deterministic, no LLM, no key. Modes:
+produces a **prioritized** health report — worst-first, across five categories
+(security, version, best-practice, structure, variables), with a per-directory
+rollup and the detected cloud providers. Deterministic, no LLM, no key. Modes:
 
 | Flag | Output |
 |---|---|
 | *(none)* | colored text report on stdout |
-| `--json` | machine-readable, for CI |
-| `--html [--out f]` | a **self-contained**, shareable HTML report (no external assets) |
-| `--explain` | *optional* AI layer — a concrete modern-fix line per finding (needs a key; degrades cleanly without one) |
+| `--json` | machine-readable, for CI (the full, uncapped finding list) |
+| `--html [--out f]` | a **self-contained, tabbed** HTML report — one tab per category with counts, provider chips, light/dark theme, no external assets, no JS. Scales to big repos (caps ~50 findings per tab with an honest "top N of M — run `--json` for the full list" banner) |
+| `--explain` | *optional* AI layer — per finding, a prose fix **plus a copy-pasteable HCL snippet**, tailored to the repo's real cloud (needs a key; degrades cleanly without one) |
+| `--top N` | how many findings to show in the text report (default 10) |
 | `--fail-on <sev>` | exit `1` at/above a severity (default `none` — report-only) |
+
+> `--explain` costs tokens (one batched API call for the whole report); every
+> other mode is free.
 
 ```yaml
 # Fail the build only on High+ across the whole repo:

@@ -76,7 +76,7 @@ func runAudit(args []string) int {
 
 	// Optional AI layer: explain the findings. Deterministic report is already
 	// built above, so if this fails we still have the full report.
-	var enrich map[string]string
+	var enrich map[string]repo.Enrichment
 	if *explain {
 		enrich = explainFindings(rep)
 	}

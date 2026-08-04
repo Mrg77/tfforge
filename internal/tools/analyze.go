@@ -42,7 +42,9 @@ type Category string
 const (
 	CatSecurity     Category = "security"
 	CatVersion      Category = "version"       // outdated/deprecated Terraform, providers, syntax
-	CatBestPractice Category = "best-practice" // structure, typing, backend, naming
+	CatBestPractice Category = "best-practice" // backend, provider pinning, hard-coded region
+	CatStructure    Category = "structure"     // DRY / repetition, count/for_each, module extraction
+	CatVariables    Category = "variables"     // untyped/undescribed vars, magic values
 )
 
 // Finding is one issue tfforge's own analysis flagged.
@@ -80,7 +82,7 @@ func AnalyzeDir(dir string) []Finding {
 		base := filepath.Base(f)
 		dirSrc.WriteString(src)
 		dirSrc.WriteByte('\n')
-		if strings.Contains(src, "provider \"") {
+		if reAnyProvider.MatchString(src) {
 			hasProvider = true
 		}
 		findings = append(findings, checkIAMWildcard(base, src)...)
@@ -97,10 +99,13 @@ func AnalyzeDir(dir string) []Finding {
 		findings = append(findings, checkVersions(base, src)...)      // outdated/deprecated TF & providers
 		findings = append(findings, checkBestPractices(base, src)...) // objective best practices
 	}
-	// Whole-directory checks (backend, etc.): a module is resolved as a unit, so
-	// these can't be judged file-by-file. Tag the finding with the directory name.
+	// Whole-directory checks: a module is resolved as a unit, so backend,
+	// repetition/DRY, and variable hygiene can't be judged file-by-file. Tag the
+	// findings with the directory name.
 	if len(files) > 0 {
-		findings = append(findings, checkDirBestPractices(filepath.Base(dir)+"/", dirSrc.String(), hasProvider)...)
+		label := filepath.Base(dir) + "/"
+		findings = append(findings, checkDirBestPractices(label, dirSrc.String(), hasProvider)...)
+		findings = append(findings, checkDirStructure(label, dirSrc.String())...)
 	}
 	return findings
 }

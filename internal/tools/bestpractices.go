@@ -78,25 +78,36 @@ func checkVersions(file, src string) []Finding {
 // --- best-practice checks (objective only) ---------------------------------
 
 var (
-	reProviderBlock   = regexp.MustCompile(`(?is)provider\s+"aws"\s*\{(.*?)\}`)
-	reHardcodedRegion = regexp.MustCompile(`(?i)region\s*=\s*"[a-z]{2}-[a-z]+-\d"`)
+	// reAnyProvider / reAwsProvider match a `provider "<name>"` declaration at the
+	// START of a line (?m)^\s* — so a "provider" inside a # comment or a string
+	// does NOT count. This is what keeps best-practice rules from firing on an
+	// OVH/OpenStack repo that merely mentions AWS in a comment.
+	reAnyProvider = regexp.MustCompile(`(?m)^\s*provider\s+"[a-z0-9_-]+"`)
+	reAwsProvider = regexp.MustCompile(`(?m)^\s*provider\s+"aws"`)
+	// reProviderBody captures a provider block's body to look for a hard-coded
+	// region/location inside it (provider-agnostic — AWS, OVH, GCP, Azure).
+	reProviderBody = regexp.MustCompile(`(?ism)^[ \t]*provider\s+"[a-z0-9_-]+"\s*\{(.*?)\n\}`)
+	// A hard-coded region OR location set to a string literal (not a var./local.).
+	// Works for AWS "us-east-1", OVH "GRA7", GCP "us-central1", Azure "westeurope".
+	reHardcodedRegion = regexp.MustCompile(`(?im)^\s*(region|location)\s*=\s*"[A-Za-z0-9_-]+"`)
 	reRequiredProv    = regexp.MustCompile(`(?i)required_providers`)
 	reBackend         = regexp.MustCompile(`(?i)backend\s+"`)
-	reResourceCount   = regexp.MustCompile(`(?i)^\s*resource\s+"`)
+	reResourceCount   = regexp.MustCompile(`(?m)^\s*resource\s+"`)
 )
 
 // checkBestPractices flags a few concrete, non-subjective Terraform practices.
 func checkBestPractices(file, src string) []Finding {
 	var out []Finding
 
-	// A hard-coded region in the provider block (should be a variable).
-	if m := reProviderBlock.FindStringSubmatch(src); m != nil && reHardcodedRegion.MatchString(m[1]) {
+	// A hard-coded region/location inside a provider block (should be a variable).
+	// Provider-agnostic so it also serves OVH/OpenStack/GCP/Azure, not just AWS.
+	if m := reProviderBody.FindStringSubmatch(src); m != nil && reHardcodedRegion.MatchString(m[1]) {
 		out = append(out, findingCat(file, CatBestPractice, SevLow,
-			`the AWS provider region is hard-coded — make it a variable (var.region) so the config is reusable across regions.`))
+			`the provider region/location is hard-coded — make it a variable (var.region) so the config is reusable across regions.`))
 	}
 
-	// Providers used but not pinned via required_providers.
-	if strings.Contains(src, `provider "aws"`) && !reRequiredProv.MatchString(src) {
+	// Provider configured but not pinned via required_providers (reproducibility).
+	if reAnyProvider.MatchString(src) && !reRequiredProv.MatchString(src) {
 		out = append(out, findingCat(file, CatBestPractice, SevLow,
 			`no required_providers block — pin provider sources/versions in terraform{ required_providers {} } for reproducible builds.`))
 	}

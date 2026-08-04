@@ -56,13 +56,19 @@ func TestHTMLEnrichmentShown(t *testing.T) {
 	if len(rep.Findings) == 0 {
 		t.Fatal("need findings to enrich")
 	}
-	// Enrich the first finding; the HTML must render the explanation.
-	enrich := map[string]string{
-		EnrichKey(rep.Findings[0]): "SENTINEL_FIX_TEXT restrict the cidr_blocks",
+	// Enrich the first finding; the HTML must render both prose and the HCL code.
+	enrich := map[string]Enrichment{
+		EnrichKey(rep.Findings[0]): {
+			Prose: "SENTINEL_FIX_TEXT restrict the cidr_blocks",
+			Code:  "SENTINEL_CODE_BLOCK { cidr = var.allowed }",
+		},
 	}
 	html := rep.HTML(enrich)
 	if !strings.Contains(html, "SENTINEL_FIX_TEXT") {
-		t.Error("AI enrichment not rendered in the HTML report")
+		t.Error("AI enrichment prose not rendered in the HTML report")
+	}
+	if !strings.Contains(html, "SENTINEL_CODE_BLOCK") {
+		t.Error("AI enrichment code snippet not rendered in the HTML report")
 	}
 	if !strings.Contains(html, "AI-explained") {
 		t.Error("enriched report should note it was AI-explained")
