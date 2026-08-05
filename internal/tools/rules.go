@@ -41,6 +41,11 @@ var (
 	// "*" — public exposure via policy, one of the most common S3 leaks.
 	rePrincipalStar    = regexp.MustCompile(`(?i)"?Principal"?\s*[:=]\s*"\*"`)
 	rePrincipalAWSStar = regexp.MustCompile(`(?is)"?Principal"?\s*[:=]\s*\{[^}]*"AWS"\s*[:=]\s*\[?\s*"\*"`)
+	// One policy statement block { ... } (non-greedy), to test Effect vs Principal
+	// PER statement — a Deny with Principal "*" is safe, an Allow is not.
+	reStatementBlock = regexp.MustCompile(`(?s)\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}`)
+	reEffectAllow    = regexp.MustCompile(`(?i)"?[Ee]ffect"?\s*[:=]\s*"Allow"`)
+	reEffectDeny     = regexp.MustCompile(`(?i)"?[Ee]ffect"?\s*[:=]\s*"Deny"`)
 	// egress open to the world with all protocols — data exfiltration path.
 	reEgress = regexp.MustCompile(`(?is)egress\s*\{.*?\}`)
 )
@@ -79,21 +84,57 @@ func checkNetwork(file, src string) []Finding {
 	return out
 }
 
-// checkPublicPolicy flags a resource policy that grants access to Principal "*"
-// — public exposure via policy (e.g. an aws_s3_bucket_policy making a bucket
-// world-readable), which the ACL/public-access-block checks don't catch.
+// checkPublicPolicy flags a resource policy that grants (Allow) access to
+// Principal "*" — public exposure via policy (e.g. an aws_s3_bucket_policy making
+// a bucket world-readable), which the ACL/public-access-block checks don't catch.
+//
+// A Principal "*" in a DENY statement is SAFE — it's the recommended pattern for
+// a blanket restriction (e.g. "Deny s3:* when aws:SecureTransport = false" to
+// force TLS). Flagging that would be a false positive that punishes good code, so
+// we only flag when the statement carrying Principal "*" is an Allow.
 func checkPublicPolicy(file, src string) []Finding {
 	var out []Finding
-	if rePrincipalStar.MatchString(src) || rePrincipalAWSStar.MatchString(src) {
-		sev := SevHigh
-		msg := `a resource policy grants access to Principal "*" (everyone) — this exposes the resource publicly.`
-		if strings.Contains(src, "aws_s3_bucket_policy") {
-			sev = SevCritical
-			msg = `an aws_s3_bucket_policy grants access to Principal "*" — the bucket is public to the internet. Restrict the Principal, or this defeats the public-access block.`
-		}
-		out = append(out, finding(file, sev, msg))
+	if !(rePrincipalStar.MatchString(src) || rePrincipalAWSStar.MatchString(src)) {
+		return out
 	}
+	if !principalStarInAllow(src) {
+		return out // only in Deny statement(s) → safe (TLS-only, blanket deny)
+	}
+	sev := SevHigh
+	msg := `a resource policy grants access to Principal "*" (everyone) — this exposes the resource publicly.`
+	if strings.Contains(src, "aws_s3_bucket_policy") {
+		sev = SevCritical
+		msg = `an aws_s3_bucket_policy grants access to Principal "*" — the bucket is public to the internet. Restrict the Principal, or this defeats the public-access block.`
+	}
+	out = append(out, finding(file, sev, msg))
 	return out
+}
+
+// principalStarInAllow reports whether any policy STATEMENT that grants
+// Principal "*" has Effect "Allow". It scans each {...} statement block for the
+// co-occurrence of a wildcard principal and an Allow effect, so a Deny-only
+// wildcard principal (TLS-only, blanket deny) does not trip the rule. If no
+// explicit Effect is found near a wildcard principal, it errs on the side of
+// flagging (AWS defaults an unspecified Effect to Deny, but a policy that omits
+// it is unusual enough to warrant a look).
+func principalStarInAllow(src string) bool {
+	for _, stmt := range reStatementBlock.FindAllString(src, -1) {
+		if rePrincipalStar.MatchString(stmt) || rePrincipalAWSStar.MatchString(stmt) {
+			if reEffectAllow.MatchString(stmt) {
+				return true
+			}
+			// Wildcard principal with an explicit Deny → safe; keep scanning.
+			if reEffectDeny.MatchString(stmt) {
+				continue
+			}
+			// Wildcard principal but no Effect in this block: fall back to the
+			// document-wide Allow heuristic (conservative).
+			if grantsWildcard(src) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // checkIAMFine flags least-privilege gaps that a coarse "no Action *" check

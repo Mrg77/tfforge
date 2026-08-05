@@ -56,6 +56,24 @@ resource "aws_s3_bucket_policy" "p" {
 }`), "aws_s3_bucket_policy grants access to Principal")
 }
 
+// A Principal "*" in a DENY statement is the recommended TLS-only pattern — it
+// RESTRICTS, it doesn't expose. It must NOT be flagged (false positive).
+func TestDenyPrincipalStarIsNotFlagged(t *testing.T) {
+	fs := scan(t, `
+resource "aws_s3_bucket_policy" "tls_only" {
+  policy = jsonencode({ Statement = [{
+    Sid = "DenyInsecureTransport", Effect = "Deny", Principal = "*",
+    Action = "s3:*", Resource = "arn:aws:s3:::b/*",
+    Condition = { Bool = { "aws:SecureTransport" = "false" } }
+  }] })
+}`)
+	for _, f := range fs {
+		if strings.Contains(f.Message, `Principal "*"`) {
+			t.Errorf("a Deny Principal \"*\" (TLS-only) must not be flagged: %s", f.Message)
+		}
+	}
+}
+
 func TestSecretInUserDataHeredoc(t *testing.T) {
 	mustFlag(t, scan(t, `
 resource "aws_instance" "web" {
