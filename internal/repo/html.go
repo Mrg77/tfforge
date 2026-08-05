@@ -425,8 +425,10 @@ const htmlSource = `<!doctype html>
   .d-before .d-lbl{color:var(--crit); background:var(--crit-bg)}
   .d-after .d-lbl{color:var(--ok); background:var(--ok-bg)}
   .d-lbl em{font-style:normal; font-weight:500; opacity:.75; text-transform:none; letter-spacing:0}
-  .diffnote{margin:7px 0 0; font-size:11.5px; color:var(--muted); font-style:italic}
-  .diffnote code{font-style:normal; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px}
+  .ainote{margin:-6px 0 20px; padding:9px 13px; border-radius:8px; font-size:12.5px;
+          color:var(--muted); background:var(--info-bg); border:1px solid var(--line)}
+  .ainote b{color:var(--ink); font-weight:600}
+  .ainote code{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11.5px}
   .d-col pre{
     margin:0; padding:10px 12px; overflow-x:auto; white-space:pre;
     font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:12.5px;
@@ -473,6 +475,8 @@ const htmlSource = `<!doctype html>
   </header>
 
   <div class="verdict {{.VerdictClass}}"><span class="dot"></span><p>{{.Verdict}}</p></div>
+
+  {{if .Enriched}}<p class="ainote">Each fix below is a <b>before/after diff of your real code</b> — <code>--explain</code> sent the relevant <code>.tf</code> to the AI with secret values masked. Review before applying.</p>{{end}}
 
   <div class="cards">
     <div class="card total"><div class="k">Total</div><div class="v num">{{.Total}}</div></div>
@@ -556,9 +560,9 @@ const htmlSource = `<!doctype html>
   <p class="msg">{{.Message}}</p>
   {{if .Explain}}<div class="explain"><b>Fix &middot;</b> {{.Explain}}
     {{if or .Before .After}}<div class="diff">
-      {{if .Before}}<div class="d-col d-before"><span class="d-lbl">before <em>· illustrative</em></span><pre>{{.Before}}</pre></div>{{end}}
+      {{if .Before}}<div class="d-col d-before"><span class="d-lbl">before</span><pre>{{.Before}}</pre></div>{{end}}
       {{if .After}}<div class="d-col d-after"><span class="d-lbl">after</span><pre>{{.After}}</pre></div>{{end}}
-    </div>{{if .Before}}<p class="diffnote">The scan reads your files locally, but <code>--explain</code> sends only the findings to the AI — not your file contents — so this “before” is an illustrative reconstruction. Adapt the “after” to your actual code.</p>{{end}}{{end}}
+    </div>{{end}}
   </div>{{end}}
 </li>
 {{end}}

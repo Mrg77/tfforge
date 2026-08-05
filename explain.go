@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -64,22 +65,28 @@ func explainFindings(rep *repo.Report) (map[string]repo.Enrichment, *explainStat
 		Sev string `json:"severity"`
 		Cat string `json:"category"`
 		Msg string `json:"message"`
+		Src string `json:"source,omitempty"` // the REAL .tf code for this finding, secrets masked
 	}
 	items := make([]item, len(rep.Findings))
 	for i, f := range rep.Findings {
-		items[i] = item{I: i, Sev: f.Severity, Cat: string(f.Category), Msg: f.Message}
+		items[i] = item{
+			I: i, Sev: f.Severity, Cat: string(f.Category), Msg: f.Message,
+			Src: snippetFor(rep.Root, f.File),
+		}
 	}
 	payload, _ := json.Marshal(items)
 
-	system := `You are tfforge's audit explainer. For each Terraform finding, return a fix as
-a before/after diff plus a one-line summary:
+	system := `You are tfforge's audit explainer. Each finding includes "source": the REAL
+Terraform code from the user's repo (secret VALUES already masked as ***). For
+each finding, return a fix as a before/after diff plus a one-line summary:
   - "fix": ONE short sentence (max ~35 words) — what to change, the modern
     idiomatic way. No preamble, no restating the problem, no markdown.
-  - "before": a SHORT HCL snippet showing the CURRENT problematic code as it
-    likely looks (reconstruct it from the finding — you don't see the file). Use
-    "" if there's nothing meaningful to show (e.g. a missing block).
-  - "after": the SAME snippet corrected — the fixed HCL, copy-pasteable, real
-    Terraform, correctly indented.
+  - "before": the ACTUAL relevant lines taken from "source" — the real code that
+    has the problem, verbatim (keep the masked *** as-is; never invent a value).
+    Trim to just the few lines that matter. Use "" only if "source" is empty.
+  - "after": those SAME lines corrected — the fixed HCL, copy-pasteable, real
+    Terraform, correctly indented, consistent with the rest of "source".
+Use the real names/attributes from "source" — do NOT invent generic examples.
 Keep before/after aligned so the change reads as a diff. Omit both (use "") when
 a snippet wouldn't help (e.g. "rotate this credential").
 
@@ -245,4 +252,74 @@ func balancedObject(s string, openIdx int) string {
 		}
 	}
 	return ""
+}
+
+// maxSnippetBytes bounds how much real code we send per finding, so a huge file
+// doesn't blow the token budget. A finding's fix rarely needs more than this.
+const maxSnippetBytes = 2000
+
+// snippetFor returns the REAL Terraform source relevant to a finding, with secret
+// VALUES masked, so --explain can build a faithful before/after from the user's
+// actual code (not a generic guess). rel is the finding's File as tagged by the
+// audit: a real .tf path (e.g. "infra-OVH/vm-utils/volume-only.tf") or a
+// directory-level finding whose File is "<dir>/" — in which case we concatenate
+// the directory's .tf files. Returns "" if nothing readable is found.
+func snippetFor(root, rel string) string {
+	p := filepath.Join(root, rel)
+	// Directory-level finding (File ends in "/" or names a dir): join its .tf.
+	if st, err := os.Stat(p); err == nil && st.IsDir() {
+		return maskSecrets(readDirTF(p))
+	}
+	// A single real file.
+	if data, err := os.ReadFile(p); err == nil {
+		return maskSecrets(clip(string(data)))
+	}
+	// Not a file: a directory-level finding is tagged "<dir>/<dir>" (the audit
+	// labels whole-directory findings with the base dir name). Fall back to the
+	// parent directory's .tf files.
+	if dir := filepath.Dir(p); dir != "" {
+		if st, err := os.Stat(dir); err == nil && st.IsDir() {
+			return maskSecrets(readDirTF(dir))
+		}
+	}
+	return ""
+}
+
+// readDirTF concatenates the .tf files in a directory (bounded), for a
+// directory-level finding (backend, repetition, variables).
+func readDirTF(dir string) string {
+	files, _ := filepath.Glob(filepath.Join(dir, "*.tf"))
+	var b strings.Builder
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		b.WriteString("# " + filepath.Base(f) + "\n")
+		b.Write(data)
+		b.WriteString("\n")
+		if b.Len() > maxSnippetBytes {
+			break
+		}
+	}
+	return clip(b.String())
+}
+
+func clip(s string) string {
+	if len(s) > maxSnippetBytes {
+		return s[:maxSnippetBytes] + "\n# … (truncated)"
+	}
+	return s
+}
+
+// reSecretValue matches the VALUE of a likely-secret attribute (password, token,
+// secret, api_key, private_key, access_key…), so we can mask it before sending
+// code to the API. The attribute name and structure stay; only the value is ***.
+var reSecretValue = regexp.MustCompile(`(?i)((?:password|secret|token|api_?key|private_key|access_key|secret_key|passphrase|client_secret|client_id|tenant_id|user_name|username|access_token|auth_token)\s*=\s*)"[^"]*"`)
+
+// maskSecrets replaces secret literal values with *** so nothing sensitive leaves
+// the machine, even when --explain sends real code. The masked *** is preserved
+// by the model in the "before" diff.
+func maskSecrets(src string) string {
+	return reSecretValue.ReplaceAllString(src, `${1}"***"`)
 }

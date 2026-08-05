@@ -70,11 +70,11 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
   it adds, per finding, a prose fix **plus a before/after HCL diff** — the current
   problematic code and the corrected version side by side, tailored to the repo's
   actual cloud (a Swift/OVH backend on an OpenStack repo, not an AWS S3 one). The
-  HTML footer shows the **AI call's cost** (model + tokens + ~$) for FinOps
-  visibility. Privacy: `--explain` sends **only the findings** (file path,
-  category, severity, message) and the detected providers to the API — **never
-  your `.tf` file contents** — so the "before" is an AI-*reconstructed* example
-  (labelled illustrative), and the "after" is the idiomatic fix to adapt. Without
+  "before" is your **real code** and the "after" is the fix applied to it — a
+  faithful diff, not a generic example. The HTML footer shows the **AI call's
+  cost** (model + tokens + ~$) for FinOps visibility. Privacy: `--explain` sends
+  the relevant `.tf` to the API **with secret values masked** (`password = "***"`)
+  — nothing is sent at all without `--explain` (the scan is 100% local). Without
   a key it **degrades cleanly** and still writes the report. Deterministic
   detects, the AI explains.
 - **A from-scratch agent loop** — `message + tools → tool_use → guard → run →
@@ -268,7 +268,7 @@ rollup and the detected cloud providers. Deterministic, no LLM, no key. Modes:
 | *(none)* | colored text report on stdout |
 | `--json` | machine-readable, for CI (the full, uncapped finding list) |
 | `--html [--out f]` | a **self-contained, tabbed** HTML report — one tab per category with counts, provider chips, light/dark theme, no external assets, no JS. Scales to big repos (caps ~50 findings per tab with an honest "top N of M — run `--json` for the full list" banner) |
-| `--explain` | *optional* AI layer — per finding, a prose fix **plus a before/after HCL diff** tailored to the repo's real cloud; sends only findings (never file contents), so the "before" is an illustrative reconstruction. Footer shows the call's token cost. Needs a key; degrades cleanly without one |
+| `--explain` | *optional* AI layer — per finding, a prose fix **plus a real before/after HCL diff** (your actual code → the fix), tailored to the repo's cloud. Sends the relevant `.tf` to the API **with secrets masked**; nothing is sent without `--explain`. Footer shows the call's token cost. Needs a key; degrades cleanly without one |
 | `--top N` | how many findings to show in the text report (default 10) |
 | `--fail-on <sev>` | exit `1` at/above a severity (default `none` — report-only) |
 
