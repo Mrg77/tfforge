@@ -232,42 +232,41 @@ func (r *Report) htmlModel(enrich map[string]Enrichment, cost *ExplainCost) html
 		})
 	}
 
-	// Per-directory rollup, worst-count first, with a bar scaled to the max.
+	// Per-FILE rollup, worst-count first, with a bar scaled to the max — more
+	// actionable than per-directory (points at the exact file to open).
 	type acc struct {
 		n   int
 		max tools.Severity
 	}
-	byDir := map[string]*acc{}
-	dorder := []string{}
-	for _, d := range r.byDir {
-		if len(d.Findings) == 0 {
-			continue
+	byFile := map[string]*acc{}
+	forder := []string{}
+	for _, f := range r.Findings {
+		a := byFile[f.File]
+		if a == nil {
+			a = &acc{}
+			byFile[f.File] = a
+			forder = append(forder, f.File)
 		}
-		a := &acc{}
-		for _, f := range d.Findings {
-			a.n++
-			if f.Sev() > a.max {
-				a.max = f.Sev()
-			}
+		a.n++
+		if f.Sev() > a.max {
+			a.max = f.Sev()
 		}
-		byDir[d.Dir] = a
-		dorder = append(dorder, d.Dir)
 	}
 	maxN := 1
-	for _, a := range byDir {
+	for _, a := range byFile {
 		if a.n > maxN {
 			maxN = a.n
 		}
 	}
-	sort.Slice(dorder, func(i, j int) bool {
-		if byDir[dorder[i]].n != byDir[dorder[j]].n {
-			return byDir[dorder[i]].n > byDir[dorder[j]].n
+	sort.Slice(forder, func(i, j int) bool {
+		if byFile[forder[i]].n != byFile[forder[j]].n {
+			return byFile[forder[i]].n > byFile[forder[j]].n
 		}
-		return dorder[i] < dorder[j]
+		return forder[i] < forder[j]
 	})
-	for _, d := range dorder {
-		a := byDir[d]
-		m.Dirs = append(m.Dirs, htmlDir{Dir: d, N: a.n, Pct: a.n * 100 / maxN, MaxClass: sevClass(a.max.String())})
+	for _, f := range forder {
+		a := byFile[f]
+		m.Dirs = append(m.Dirs, htmlDir{Dir: f, N: a.n, Pct: a.n * 100 / maxN, MaxClass: sevClass(a.max.String())})
 	}
 	return m
 }

@@ -86,27 +86,11 @@ func (r *Report) Markdown(enrich map[string]Enrichment, cost *ExplainCost) strin
 		}
 	}
 
-	// Per-directory rollup.
+	// Per-FILE rollup — more actionable than per-directory ("which file exactly?").
 	b.WriteString("### 📂 Where the debt concentrates\n\n")
-	type kv struct {
-		dir string
-		n   int
-	}
-	rows := []kv{}
-	for _, d := range r.byDir {
-		if len(d.Findings) > 0 {
-			rows = append(rows, kv{d.Dir, len(d.Findings)})
-		}
-	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].n != rows[j].n {
-			return rows[i].n > rows[j].n
-		}
-		return rows[i].dir < rows[j].dir
-	})
-	b.WriteString("| Directory | Findings |\n|:--|:-:|\n")
-	for _, row := range rows {
-		fmt.Fprintf(&b, "| `%s` | %d |\n", row.dir, row.n)
+	b.WriteString("| File | Findings |\n|:--|:-:|\n")
+	for _, row := range fileCounts(r.Findings) {
+		fmt.Fprintf(&b, "| `%s` | %d |\n", row.name, row.n)
 	}
 	b.WriteString("\n")
 
@@ -229,4 +213,31 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// fileCount is one row of the per-file rollup.
+type fileCount struct {
+	name string
+	n    int
+}
+
+// fileCounts groups findings by their File and returns rows sorted most-first
+// (then by name). More precise than a per-directory rollup — it points at the
+// exact file to open.
+func fileCounts(findings []tools.Finding) []fileCount {
+	counts := map[string]int{}
+	for _, f := range findings {
+		counts[f.File]++
+	}
+	rows := make([]fileCount, 0, len(counts))
+	for name, n := range counts {
+		rows = append(rows, fileCount{name, n})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].n != rows[j].n {
+			return rows[i].n > rows[j].n
+		}
+		return rows[i].name < rows[j].name
+	})
+	return rows
 }
