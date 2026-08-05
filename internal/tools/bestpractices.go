@@ -99,11 +99,14 @@ var (
 func checkBestPractices(file, src string) []Finding {
 	var out []Finding
 
-	// A hard-coded region/location inside a provider block (should be a variable).
+	// A hard-coded region/location inside a PROVIDER block (should be a variable).
 	// Provider-agnostic so it also serves OVH/OpenStack/GCP/Azure, not just AWS.
+	// Note: this targets the provider block only — a `backend` block's region MUST
+	// stay literal (backends are evaluated before variables exist), so we don't
+	// flag it there.
 	if m := reProviderBody.FindStringSubmatch(src); m != nil && reHardcodedRegion.MatchString(m[1]) {
 		out = append(out, findingCat(file, CatBestPractice, SevLow,
-			`the provider region/location is hard-coded — make it a variable (var.region) so the config is reusable across regions.`))
+			`the provider block's region/location is hard-coded — declare a variable (add a variable "region" block) and reference it as var.region, so the config is reusable across regions. (A backend block's region must stay literal.)`))
 	}
 
 	// Provider configured but not pinned via required_providers (reproducibility).

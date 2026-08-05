@@ -41,6 +41,7 @@ func runAudit(args []string) int {
 	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit the report as JSON (for CI)")
 	asHTML := fs.Bool("html", false, "emit a self-contained, shareable HTML report")
+	asMarkdown := fs.Bool("markdown", false, "emit a GitHub-flavored Markdown report (for a CI job summary)")
 	out := fs.String("out", "", "write the report to this file instead of stdout (great with --html)")
 	explain := fs.Bool("explain", false, "enrich each finding with an AI-written fix (needs ANTHROPIC_API_KEY; costs tokens)")
 	top := fs.Int("top", 10, "how many top findings to show (text report only; HTML/JSON list all)")
@@ -92,6 +93,8 @@ func runAudit(args []string) int {
 	switch {
 	case *asHTML:
 		content = rep.HTML(enrich, cost)
+	case *asMarkdown:
+		content = rep.Markdown(enrich, cost)
 	case *asJSON:
 		content = rep.JSON()
 	default:

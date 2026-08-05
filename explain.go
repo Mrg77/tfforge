@@ -90,6 +90,15 @@ Use the real names/attributes from "source" — do NOT invent generic examples.
 Keep before/after aligned so the change reads as a diff. Omit both (use "") when
 a snippet wouldn't help (e.g. "rotate this credential").
 
+CRITICAL rules that make fixes actually apply:
+  - If your fix references a NEW variable (e.g. var.region), the "after" MUST also
+    include the variable "..." { type = ... } declaration — a fix that references
+    an undeclared variable does not work. Show both blocks.
+  - NEVER put a variable inside a "backend" block — Terraform backends are
+    evaluated before variables exist, so "region = var.region" in a backend is
+    INVALID. If the flagged region is in a backend, leave it literal and say so.
+  - Prefer a fix that is complete and applies as-is over a partial one.
+
 Tailor everything to the repo's actual cloud provider(s). Do NOT suggest AWS
 services (S3, DynamoDB, Secrets Manager) for an OpenStack/OVH/GCP/Azure repo —
 use that cloud's equivalents (OVH/OpenStack: Swift for remote state via the
