@@ -82,6 +82,7 @@ func main() {
 	if len(os.Args) < 2 || strings.TrimSpace(strings.Join(os.Args[1:], " ")) == "" {
 		fmt.Fprintln(os.Stderr, "usage:")
 		fmt.Fprintln(os.Stderr, "  tfforge \"<task>\"                 run the AI agent on a task (needs ANTHROPIC_API_KEY)")
+		fmt.Fprintln(os.Stderr, "  tfforge fix <dir> [--diff]       autonomously fix findings — headless, guarded, for CI (needs a key)")
 		fmt.Fprintln(os.Stderr, "  tfforge audit <repo> [--json]    prioritized health report of an EXISTING repo, no LLM")
 		fmt.Fprintln(os.Stderr, "  tfforge scan <dir> [--json]      deterministic security scan of one dir, no LLM — gates CI")
 		fmt.Fprintln(os.Stderr, "  tfforge version")
@@ -100,6 +101,10 @@ func main() {
 		// The CI subcommand: deterministic, no LLM, no API key. Exits non-zero
 		// on findings so it can gate a pipeline.
 		os.Exit(runScan(os.Args[2:]))
+	case "fix":
+		// Autonomous remediation: the agent scans + fixes + re-scans, HEADLESS and
+		// guarded (no apply/plan/destroy in its toolset). For CI / pre-commit.
+		os.Exit(runFix(os.Args[2:]))
 	}
 
 	task := strings.Join(os.Args[1:], " ")
