@@ -61,18 +61,36 @@ func confine(dir string) (string, error) {
 	return abs, nil
 }
 
+// tfBinary picks the CLI to drive. OpenTofu (tofu) is preferred when present: it
+// is the open-source fork, tracks newer features (e.g. S3-native use_lockfile
+// locking, added in 1.10) that a pinned terraform 1.5.7 lacks, and is the common
+// 2026 default. terraform is used when tofu is absent. Set TFFORGE_TF_BINARY to
+// force a specific one (e.g. "terraform" for an exam that mandates the official
+// CLI, or an absolute path).
+func tfBinary() (string, error) {
+	if b := os.Getenv("TFFORGE_TF_BINARY"); b != "" {
+		if _, err := exec.LookPath(b); err != nil {
+			return "", fmt.Errorf("TFFORGE_TF_BINARY=%q not found on PATH: %w", b, err)
+		}
+		return b, nil
+	}
+	if _, err := exec.LookPath("tofu"); err == nil {
+		return "tofu", nil
+	}
+	if _, err := exec.LookPath("terraform"); err == nil {
+		return "terraform", nil
+	}
+	return "", fmt.Errorf("neither tofu nor terraform found on PATH")
+}
+
 // runTerraform executes a terraform (or tofu) subcommand in workdir and returns
 // combined output. It never runs an interactive command — tfforge always drives
-// terraform non-interactively (-input=false, -no-color) so output is clean and
+// the CLI non-interactively (-input=false, -no-color) so output is clean and
 // deterministic for the model to read.
 func runTerraform(ctx context.Context, workdir string, args ...string) (string, error) {
-	bin := "terraform"
-	if _, err := exec.LookPath(bin); err != nil {
-		if _, err2 := exec.LookPath("tofu"); err2 == nil {
-			bin = "tofu"
-		} else {
-			return "", fmt.Errorf("neither terraform nor tofu found on PATH")
-		}
+	bin, err := tfBinary()
+	if err != nil {
+		return "", err
 	}
 	full := append([]string{"-chdir=" + workdir}, args...)
 	cmd := exec.CommandContext(ctx, bin, full...)

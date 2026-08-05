@@ -270,6 +270,7 @@ coût/audit.
 | `TFFORGE_MODEL` | change le modèle (défaut `claude-sonnet-4-5` ; `claude-haiku-4-5` ~3× moins cher) |
 | `TFFORGE_MAX_COST` | arrête le run avant de dépasser ce budget USD (ex. `0.50`) |
 | `TFFORGE_AUDIT` | `off` pour désactiver le journal, ou un chemin pour le rediriger |
+| `TFFORGE_TF_BINARY` | force le CLI utilisé (`tofu` / `terraform` / un chemin). Défaut : **tofu s'il est présent**, sinon terraform |
 | `NO_COLOR` | désactive la couleur du plan |
 
 ### Mode CI (`scan`)

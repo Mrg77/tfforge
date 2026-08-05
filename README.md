@@ -260,6 +260,7 @@ the plan parser (replace both orders, big-plan truncation), and cost/audit.
 | `TFFORGE_MODEL` | override the model (default `claude-sonnet-4-5`; `claude-haiku-4-5` is ~3× cheaper) |
 | `TFFORGE_MAX_COST` | stop the run before it exceeds this USD budget (e.g. `0.50`) |
 | `TFFORGE_AUDIT` | `off` to disable the audit file, or a path to redirect it |
+| `TFFORGE_TF_BINARY` | force the CLI to drive (`tofu` / `terraform` / a path). Default: **tofu if present**, else terraform |
 | `NO_COLOR` | disable colored plan output |
 
 ### CI mode (`scan`)
