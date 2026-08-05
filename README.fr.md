@@ -44,6 +44,31 @@ rendent un agent digne de confiance.
    6. GARDE ───────▶ apply/destroy passent par la policy — destroy sur prod BLOQUÉ
 ```
 
+## Quel outil pour quoi (soyons honnêtes)
+
+tfforge a deux moitiés très différentes. Utilise la bonne — elles n'ont pas le même coût :
+
+| Tu veux… | Utilise | Coût |
+|---|---|---|
+| **Écrire / générer du HCL** | ton assistant d'IDE (Claude Code, etc.) — il a le contexte du repo et est déjà payé | ton abonnement |
+| **Scanner la sécu d'un dossier** | `tfforge scan <dir>` | **0 token** (déterministe, sans clé API) |
+| **Auditer un repo existant entier** | `tfforge audit <repo>` | 0 (seul `--explain` appelle l'API) |
+| **Gater une CI** | `tfforge scan --fail-on high` | **0 token** |
+| **Appliquer avec un filet** | `tofu apply` derrière la garde tfforge | 0 |
+
+**Le positionnement honnête :** l'*agent* intégré (`tfforge "<tâche>"`, qui appelle l'API
+Anthropic au token) est une **démonstration from-scratch** d'une boucle agentique gardée —
+c'est la pièce d'entretien (« je sais construire un agent à outils avec une garde qu'il ne
+peut pas contourner »), pas la façon la moins chère d'écrire du code au quotidien. La
+**valeur durable, c'est la couche déterministe** — `scan`, `audit`, la garde — que ton
+assistant d'IDE ne te donne *pas* et qui ne coûte rien. Génère avec le meilleur assistant
+que tu as ; sécurise et gate avec tfforge.
+
+> Note sur la version Terraform : le locking S3-natif (`use_lockfile`) exige Terraform
+> **≥ 1.10** ou **OpenTofu ≥ 1.10**. Sur un `terraform` plus ancien, l'agent retombe sur une
+> table DynamoDB (aujourd'hui déconseillée) juste pour que `validate` passe — donc préfère
+> `tofu`.
+
 ## Ce qu'il fait
 
 - **Il adopte un repo que tu as déjà.** `tfforge audit <repo>` parcourt un dépôt

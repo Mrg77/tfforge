@@ -46,6 +46,30 @@ Terraform — with the security and LLMOps concerns that make an agent trustwort
    6. GUARD ─────▶ apply/destroy pass through policy — destroy on prod is BLOCKED
 ```
 
+## Which tool for which job (be honest)
+
+tfforge has two very different halves. Use the right one — they don't cost the same:
+
+| You want to… | Use | Cost |
+|---|---|---|
+| **Write / generate HCL** | your IDE assistant (Claude Code, etc.) — it has your repo context and is already paid for | your subscription |
+| **Security-scan a directory** | `tfforge scan <dir>` | **0 tokens** (deterministic, no API key) |
+| **Audit a whole existing repo** | `tfforge audit <repo>` | 0 (only `--explain` calls the API) |
+| **Gate a CI pipeline** | `tfforge scan --fail-on high` | **0 tokens** |
+| **Apply with a safety net** | `tofu apply` behind tfforge's guard policy | 0 |
+
+**The honest positioning:** the built-in *agent* (`tfforge "<task>"`, which calls the
+Anthropic API per token) is a **from-scratch demonstration** of a guarded agent loop —
+it's the interview piece ("I can build a tool-using agent with a policy guard it can't
+bypass"), not the cheapest way to write code day-to-day. The **durable value is the
+deterministic layer** — `scan`, `audit`, and the guard — which your IDE assistant does
+*not* give you and which costs nothing to run. Generate with the best assistant you have;
+secure and gate with tfforge.
+
+> Note on Terraform version: S3-native state locking (`use_lockfile`) needs Terraform
+> **≥ 1.10** or **OpenTofu ≥ 1.10**. On an older `terraform` the agent will fall back to a
+> DynamoDB lock table (now discouraged) just to make `validate` pass — so prefer `tofu`.
+
 ## What it does
 
 - **It adopts a repo you already have.** `tfforge audit <repo>` walks a *whole*
