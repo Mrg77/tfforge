@@ -264,8 +264,14 @@ func balancedObject(s string, openIdx int) string {
 }
 
 // maxSnippetBytes bounds how much real code we send per finding, so a huge file
+// doesn't blow the token budget — but it's generous enough that a normal .tf
+// (provider + backend + a policy block) isn't truncated before the relevant code,
+// which used to leave the AI with an empty "before" (it couldn't see the s3:*
+// block past the old 2 KB cut).
+//
+// (kept below for reference)
 // doesn't blow the token budget. A finding's fix rarely needs more than this.
-const maxSnippetBytes = 2000
+const maxSnippetBytes = 8000
 
 // snippetFor returns the REAL Terraform source relevant to a finding, with secret
 // VALUES masked, so --explain can build a faithful before/after from the user's

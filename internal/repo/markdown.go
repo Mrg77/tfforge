@@ -18,33 +18,31 @@ func (r *Report) Markdown(enrich map[string]Enrichment, cost *ExplainCost) strin
 	cat := r.CategoryCounts()
 	total := len(r.Findings)
 
-	// Header + verdict.
-	fmt.Fprintf(&b, "## tfforge — Terraform health report\n\n")
-	fmt.Fprintf(&b, "`%s` · %d director%s · %d `.tf` file%s",
+	// Header: title + a shields.io verdict badge, then the scan metadata line.
+	b.WriteString("# 🛠️ tfforge — Terraform health\n\n")
+	b.WriteString(verdictBadge(total, r.MaxSeverity()) + "\n\n")
+	fmt.Fprintf(&b, "**`%s`** — scanned %d director%s, %d `.tf` file%s",
 		r.Root, r.DirsScanned, plural(r.DirsScanned, "y", "ies"),
 		r.TFFiles, plural(r.TFFiles, "", "s"))
 	if len(r.Providers) > 0 {
-		fmt.Fprintf(&b, " · providers: %s", "`"+strings.Join(r.Providers, "`, `")+"`")
+		fmt.Fprintf(&b, "  ·  providers %s", providerBadges(r.Providers))
 	}
 	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "> %s %s\n\n", verdictEmoji(r.MaxSeverity()), verdictLine(total, r.MaxSeverity()))
 
 	if total == 0 {
-		b.WriteString("✅ **No findings — this repo looks healthy.**\n")
+		b.WriteString("> ✅ **No findings — this repo looks healthy.**\n")
 		return b.String()
 	}
 
-	// Counts table.
-	b.WriteString("| Total | 🔴 Security | 🟡 Version | 🔵 Best-practice | 🟣 Structure | ⚪ Variables |\n")
-	b.WriteString("|:-:|:-:|:-:|:-:|:-:|:-:|\n")
-	fmt.Fprintf(&b, "| **%d** | %d | %d | %d | %d | %d |\n\n",
-		total, cat[tools.CatSecurity], cat[tools.CatVersion],
-		cat[tools.CatBestPractice], cat[tools.CatStructure], cat[tools.CatVariables])
+	fmt.Fprintf(&b, "> %s\n\n", verdictLine(total, r.MaxSeverity()))
 
-	// Findings — a table row per finding, worst-first, with an expandable diff.
-	b.WriteString("### Fix these first\n\n")
+	// Counts as shields badges (colored, scannable at a glance).
+	b.WriteString(countBadges(total, cat) + "\n\n")
+
+	// Findings — a table row per finding, worst-first.
+	b.WriteString("### 🎯 Fix these first\n\n")
 	b.WriteString("| # | Severity | Category | File | Issue |\n")
-	b.WriteString("|:-:|:-:|:-:|:--|:--|\n")
+	b.WriteString("|:-:|:--|:--|:--|:--|\n")
 	shown := r.Findings
 	const capN = 40
 	truncated := false
@@ -63,27 +61,33 @@ func (r *Report) Markdown(enrich map[string]Enrichment, cost *ExplainCost) strin
 
 	// Detailed fixes with before/after diffs (only when --explain enriched them).
 	if len(enrich) > 0 {
-		b.WriteString("### Suggested fixes\n\n")
+		b.WriteString("### 🔧 Suggested fixes\n\n")
 		for i, f := range shown {
 			e, ok := enrich[EnrichKey(f)]
 			if !ok || strings.TrimSpace(e.Prose) == "" {
 				continue
 			}
-			fmt.Fprintf(&b, "<details><summary><b>%d. %s</b> — <code>%s</code></summary>\n\n",
-				i+1, mdEscape(f.Message), f.File)
-			fmt.Fprintf(&b, "**Fix ·** %s\n\n", e.Prose)
-			if strings.TrimSpace(e.Before) != "" {
-				fmt.Fprintf(&b, "```diff\n%s\n```\n\n", diffLines(e.Before, "-"))
-			}
-			if strings.TrimSpace(e.After) != "" {
-				fmt.Fprintf(&b, "```diff\n%s\n```\n\n", diffLines(e.After, "+"))
+			fmt.Fprintf(&b, "<details><summary>%s <b>%d.</b> %s — <code>%s</code></summary>\n\n",
+				sevDot(f.Severity), i+1, mdEscape(f.Message), f.File)
+			fmt.Fprintf(&b, "> **Fix ·** %s\n\n", e.Prose)
+			// Show before (removed) and after (added) as one combined diff block,
+			// which reads as a real patch in GitHub's rendered Markdown.
+			if strings.TrimSpace(e.Before) != "" || strings.TrimSpace(e.After) != "" {
+				b.WriteString("```diff\n")
+				if strings.TrimSpace(e.Before) != "" {
+					b.WriteString(diffLines(e.Before, "-") + "\n")
+				}
+				if strings.TrimSpace(e.After) != "" {
+					b.WriteString(diffLines(e.After, "+") + "\n")
+				}
+				b.WriteString("```\n\n")
 			}
 			b.WriteString("</details>\n\n")
 		}
 	}
 
 	// Per-directory rollup.
-	b.WriteString("### Where the debt concentrates\n\n")
+	b.WriteString("### 📂 Where the debt concentrates\n\n")
 	type kv struct {
 		dir string
 		n   int
@@ -116,30 +120,80 @@ func (r *Report) Markdown(enrich map[string]Enrichment, cost *ExplainCost) strin
 	return b.String()
 }
 
+// sevBadge is a shields.io badge for a severity — colored, so the table scans at
+// a glance. GitHub renders these inline images in Markdown summaries.
 func sevBadge(s string) string {
+	color := map[string]string{
+		"CRITICAL": "b31d28", "HIGH": "d15b2b", "MEDIUM": "dbab09",
+		"LOW": "1f6feb", "INFO": "8b949e",
+	}[s]
+	if color == "" {
+		color = "8b949e"
+	}
+	return fmt.Sprintf("![%s](https://img.shields.io/badge/%s-%s)", s, s, color)
+}
+
+// sevDot is a plain emoji dot for use inside <summary> (badges don't render there).
+func sevDot(s string) string {
 	switch s {
-	case "CRITICAL":
-		return "🔴 **CRITICAL**"
-	case "HIGH":
-		return "🔴 HIGH"
+	case "CRITICAL", "HIGH":
+		return "🔴"
 	case "MEDIUM":
-		return "🟡 MEDIUM"
+		return "🟡"
 	case "LOW":
-		return "🔵 LOW"
+		return "🔵"
 	default:
-		return "⚪ INFO"
+		return "⚪"
 	}
 }
 
-func verdictEmoji(s tools.Severity) string {
+// verdictBadge is the big shields badge at the top: overall posture in one glance.
+func verdictBadge(total int, max tools.Severity) string {
+	label, color := "healthy", "2ea043"
 	switch {
-	case s >= tools.SevHigh:
-		return "🔴"
-	case s >= tools.SevMedium:
-		return "🟡"
+	case total == 0:
+		label, color = "healthy", "2ea043"
+	case max >= tools.SevHigh:
+		label, color = "urgent", "b31d28"
+	case max >= tools.SevMedium:
+		label, color = "needs%20attention", "dbab09"
 	default:
-		return "🟢"
+		label, color = "minor%20polish", "1f6feb"
 	}
+	return fmt.Sprintf("![status](https://img.shields.io/badge/status-%s-%s?style=for-the-badge)", label, color)
+}
+
+// countBadges renders one shields badge per non-zero category.
+func countBadges(total int, cat map[tools.Category]int) string {
+	badge := func(label string, n int, color string) string {
+		return fmt.Sprintf("![%s](https://img.shields.io/badge/%s-%d-%s)", label, label, n, color)
+	}
+	parts := []string{badge("total", total, "24292f")}
+	if n := cat[tools.CatSecurity]; n > 0 {
+		parts = append(parts, badge("security", n, "b31d28"))
+	}
+	if n := cat[tools.CatVersion]; n > 0 {
+		parts = append(parts, badge("version", n, "dbab09"))
+	}
+	if n := cat[tools.CatBestPractice]; n > 0 {
+		parts = append(parts, badge("best--practice", n, "1f6feb"))
+	}
+	if n := cat[tools.CatStructure]; n > 0 {
+		parts = append(parts, badge("structure", n, "8250df"))
+	}
+	if n := cat[tools.CatVariables]; n > 0 {
+		parts = append(parts, badge("variables", n, "6e7781"))
+	}
+	return strings.Join(parts, " ")
+}
+
+// providerBadges renders each detected provider as a small badge.
+func providerBadges(providers []string) string {
+	parts := make([]string, 0, len(providers))
+	for _, p := range providers {
+		parts = append(parts, fmt.Sprintf("![%s](https://img.shields.io/badge/%s-30363d)", p, p))
+	}
+	return strings.Join(parts, " ")
 }
 
 func verdictLine(total int, max tools.Severity) string {
