@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"time"
 )
 
@@ -57,30 +59,36 @@ func runDrift(args []string) int {
 		fmt.Fprintln(os.Stderr, "tfforge drift: init failed:\n"+out)
 		return 1
 	}
-	planOut, code := planExitCode(ctx, bin, dir)
-	rep.PlanOutput = planOut
-	switch code {
-	case 0:
-		rep.Drift = driftNone
-	case 2:
-		rep.Drift = driftFound
-		rep.DriftedResources = parseChangedResources(planOut)
-	default:
+	// Plan to a binary file, then read it as STRUCTURED JSON (tofu show -json) —
+	// never parse the human text, which is fragile on tags/nested blocks/lists.
+	changed, code, err := planJSON(ctx, bin, dir)
+	switch {
+	case err != nil:
 		rep.Drift = driftError
-		rep.Err = "tofu plan failed — see output"
+		rep.Err = err.Error()
+	case code == 0:
+		rep.Drift = driftNone
+	default:
+		rep.Drift = driftFound
+		rep.DriftedResources = changed
 	}
 
 	// --- 2. Unmanaged resources: cloud vs state ------------------------------
+	// Scan the region the Terraform actually targets, NOT the shell's default
+	// (AWS_DEFAULT_REGION). A VPC created by hand in eu-west-3 is invisible to a
+	// describe-vpcs run against us-east-1 — that would silently miss real drift.
 	if !*skipUnmanaged && rep.Drift != driftError {
+		region := providerRegion(dir)
+		rep.Region = region
 		stateIDs := managedCloudIDs(ctx, bin, dir)
-		rep.Unmanaged = findUnmanaged(ctx, stateIDs)
+		rep.Unmanaged = findUnmanaged(ctx, stateIDs, region)
 	}
 
 	// --- Render --------------------------------------------------------------
 	if *asMarkdown {
 		fmt.Println(rep.markdown())
 	} else {
-		fmt.Println(rep.text())
+		fmt.Println(rep.text(colorStdout()))
 	}
 
 	if *failOnDrift && (rep.Drift == driftFound || len(rep.Unmanaged) > 0) {
@@ -111,17 +119,59 @@ func runTF(ctx context.Context, bin, dir string, args ...string) (string, error)
 	return string(out), err
 }
 
-// planExitCode runs `tofu plan -detailed-exitcode` and returns (output, code):
-// 0 = no changes, 1 = error, 2 = changes (drift).
-func planExitCode(ctx context.Context, bin, dir string) (string, int) {
-	full := []string{"-chdir=" + dir, "plan", "-input=false", "-no-color", "-detailed-exitcode"}
-	cmd := exec.CommandContext(ctx, bin, full...)
-	out, err := cmd.CombinedOutput()
+// providerRegion reads the AWS region the config targets, from a
+// `region = "..."` in the .tf files (the provider block). Returns "" if not
+// found — the aws cli then falls back to its default region. This makes the
+// unmanaged sweep look where the infra actually lives, not where the shell's
+// AWS_DEFAULT_REGION points.
+func providerRegion(dir string) string {
+	files, _ := filepath.Glob(filepath.Join(dir, "*.tf"))
+	re := regexp.MustCompile(`(?m)^\s*region\s*=\s*"([a-z]{2}-[a-z]+-\d)"`)
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		if m := re.FindSubmatch(data); m != nil {
+			return string(m[1])
+		}
+	}
+	return ""
+}
+
+// planJSON plans to a binary file, then reads it as STRUCTURED JSON so drift is
+// detected exactly (no text parsing). Returns the drifted resources, the plan
+// exit code (0 = no changes, 2 = changes), and any error.
+func planJSON(ctx context.Context, bin, dir string) ([]driftedRes, int, error) {
+	tmp, err := os.CreateTemp("", "tfforge-plan-*.bin")
+	if err != nil {
+		return nil, 1, err
+	}
+	planFile := tmp.Name()
+	tmp.Close()
+	defer os.Remove(planFile)
+
+	// Plan to the file. -detailed-exitcode: 0 = no changes, 1 = error, 2 = drift.
+	planCmd := exec.CommandContext(ctx, bin, "-chdir="+dir, "plan",
+		"-input=false", "-no-color", "-detailed-exitcode", "-out="+planFile)
+	planErrOut, planErr := planCmd.CombinedOutput()
 	code := 0
-	if ee, ok := err.(*exec.ExitError); ok {
+	if ee, ok := planErr.(*exec.ExitError); ok {
 		code = ee.ExitCode()
-	} else if err != nil {
+	} else if planErr != nil {
 		code = 1
 	}
-	return string(out), code
+	if code == 1 {
+		return nil, 1, fmt.Errorf("tofu plan failed:\n%s", string(planErrOut))
+	}
+	if code == 0 {
+		return nil, 0, nil // in sync — nothing to read
+	}
+
+	// Convert the binary plan to JSON and parse the structured changes.
+	jsonOut, err := runTF(ctx, bin, dir, "show", "-json", planFile)
+	if err != nil {
+		return nil, 2, fmt.Errorf("tofu show -json failed: %w", err)
+	}
+	return parsePlanJSON(jsonOut), 2, nil
 }
