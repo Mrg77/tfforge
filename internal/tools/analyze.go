@@ -85,6 +85,9 @@ func AnalyzeDir(dir string) []Finding {
 		if reAnyProvider.MatchString(src) {
 			hasProvider = true
 		}
+		// Where this file's findings start, so the waivers declared IN it can be
+		// applied to them and to nothing else.
+		fileStart := len(findings)
 		findings = append(findings, checkIAMWildcard(base, src)...)
 		findings = append(findings, checkIAMFine(base, src)...)
 		findings = append(findings, checkS3Public(base, src)...)
@@ -98,6 +101,11 @@ func AnalyzeDir(dir string) []Finding {
 		findings = append(findings, checkAzure(base, src)...)         // Azure rules
 		findings = append(findings, checkVersions(base, src)...)      // outdated/deprecated TF & providers
 		findings = append(findings, checkBestPractices(base, src)...) // objective best practices
+
+		// A scanner already told about this, in this file, with a reason: keep
+		// the finding but stop shouting about a decision someone made.
+		fileFindings := append([]Finding(nil), findings[fileStart:]...)
+		findings = append(findings[:fileStart], applyExceptions(fileFindings, src)...)
 	}
 	// Whole-directory checks: a module is resolved as a unit, so backend,
 	// repetition/DRY, and variable hygiene can't be judged file-by-file. Tag the
