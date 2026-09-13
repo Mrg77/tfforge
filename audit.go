@@ -83,6 +83,9 @@ func runAudit(args []string) int {
 	if *explain {
 		var stats *explainStats
 		enrich, stats = explainFindings(rep)
+		// The deterministic half checks the agentic half: every proposed
+		// snippet goes through the Terraform parser before anyone reads it.
+		enrich = verifyEnrichments(dir, enrich)
 		if stats != nil {
 			cost = &repo.ExplainCost{Model: stats.Model, InTok: stats.InTok, OutTok: stats.OutTok, USD: stats.Cost}
 		}

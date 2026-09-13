@@ -109,12 +109,6 @@ func checkBestPractices(file, src string) []Finding {
 			`the provider block's region/location is hard-coded — declare a variable (add a variable "region" block) and reference it as var.region, so the config is reusable across regions. (A backend block's region must stay literal.)`))
 	}
 
-	// Provider configured but not pinned via required_providers (reproducibility).
-	if reAnyProvider.MatchString(src) && !reRequiredProv.MatchString(src) {
-		out = append(out, findingCat(file, CatBestPractice, SevLow,
-			`no required_providers block — pin provider sources/versions in terraform{ required_providers {} } for reproducible builds.`))
-	}
-
 	// NOTE: the "no remote backend" check is deliberately NOT here. A backend is a
 	// property of a root MODULE (a whole directory), declared once — never per
 	// file, and never in a child module at all. Checking it per file produced
@@ -137,6 +131,16 @@ func checkDirBestPractices(dir, dirSrc string, hasProvider bool) []Finding {
 	if hasProvider && countMatches(reResourceCount, dirSrc) >= 3 && !reBackend.MatchString(dirSrc) {
 		out = append(out, findingCat(dir, CatBestPractice, SevInfo,
 			`no remote backend configured — local state doesn't lock or share. Add a backend (s3+dynamodb, etc.) for team/production use.`))
+	}
+
+	// required_providers is a property of the MODULE, not of the file that
+	// happens to configure a provider. The convention is a dedicated
+	// versions.tf next to providers.tf, so checking per file reported every repo
+	// that follows it — and an AI asked to fix that finding would duplicate the
+	// block, which breaks `init`. Same reasoning as the backend check above.
+	if hasProvider && !reRequiredProv.MatchString(dirSrc) {
+		out = append(out, findingCat(dir, CatBestPractice, SevLow,
+			`no required_providers block in this module — pin provider sources/versions in terraform{ required_providers {} } (conventionally versions.tf) for reproducible builds.`))
 	}
 	return out
 }

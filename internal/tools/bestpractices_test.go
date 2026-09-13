@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -113,5 +115,55 @@ resource "aws_s3_bucket" "good" { bucket = "b" }`)
 		if f.Category == CatVersion {
 			t.Errorf("modern code produced a version finding: %s", f.Message)
 		}
+	}
+}
+
+// The convention is a dedicated versions.tf beside providers.tf. Checking
+// required_providers per FILE flagged every repository that follows it — and an
+// AI asked to fix that finding would add a second block, which breaks `init`.
+func TestRequiredProvidersIsAModuleProperty(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("providers.tf", `provider "aws" { region = var.region }`)
+	write("versions.tf", `
+terraform {
+  required_providers {
+    aws = { source = "hashicorp/aws", version = "~> 6.0" }
+  }
+}`)
+	write("main.tf", `
+resource "aws_s3_bucket" "a" { bucket = "a" }
+resource "aws_s3_bucket" "b" { bucket = "b" }
+resource "aws_s3_bucket" "c" { bucket = "c" }`)
+
+	for _, f := range AnalyzeDir(dir) {
+		if strings.Contains(f.Message, "required_providers") {
+			t.Fatalf("required_providers is declared in versions.tf — reporting it is a false positive:\n  %s", f.Message)
+		}
+	}
+}
+
+// And it must still be reported when no file in the module declares it.
+func TestMissingRequiredProvidersIsStillReported(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`
+provider "aws" { region = "eu-west-3" }
+resource "aws_s3_bucket" "a" { bucket = "a" }
+resource "aws_s3_bucket" "b" { bucket = "b" }
+resource "aws_s3_bucket" "c" { bucket = "c" }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range AnalyzeDir(dir) {
+		if strings.Contains(f.Message, "required_providers") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("a module with no required_providers anywhere must still be reported")
 	}
 }
