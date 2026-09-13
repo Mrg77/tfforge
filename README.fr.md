@@ -173,7 +173,10 @@ que tu as ; sécurise et gate avec tfforge.
   arrête le run avant qu'il ne dépasse un plafond — du FinOps pour agents. L'agent
   est aussi optimisé pour consommer moins : il édite chirurgicalement au lieu de
   réécrire, ne planifie qu'une fois, reste concis ; et `TFFORGE_MODEL=claude-haiku-4-5`
-  le fait tourner ~3× moins cher.
+  le fait tourner ~3× moins cher. L'arbitrage s'inverse pour les commandes
+  one-shot : `--explain` et `fix` ne font qu'un appel et produisent du code qu'un
+  humain va appliquer, donc `TFFORGE_MODEL=claude-opus-5` achète un meilleur
+  jugement pour quelques centimes.
 - **Un mode CI — sans LLM.** `tfforge scan <dir> [--json] [--fail-on <sev>]`
   lance l'analyse de sécurité déterministe *seule* (sans clé API, sans tokens) et
   **sort en code non-zéro** quand des findings atteignent le seuil — donc le même
@@ -267,7 +270,7 @@ coût/audit.
 | Variable | Effet |
 |---|---|
 | `ANTHROPIC_API_KEY` | requise pour l'agent — la clé API (facturée au token). Pas nécessaire pour `scan` ni `audit` (seul `audit --explain` l'utilise). |
-| `TFFORGE_MODEL` | change le modèle (défaut `claude-sonnet-4-5` ; `claude-haiku-4-5` ~3× moins cher) |
+| `TFFORGE_MODEL` | change le modèle (défaut `claude-sonnet-5` ; `claude-opus-5` pour `--explain` et `fix`, `claude-haiku-4-5` ~3× moins cher) |
 | `TFFORGE_MAX_COST` | arrête le run avant de dépasser ce budget USD (ex. `0.50`) |
 | `TFFORGE_AUDIT` | `off` pour désactiver le journal, ou un chemin pour le rediriger |
 | `TFFORGE_TF_BINARY` | force le CLI utilisé (`tofu` / `terraform` / un chemin). Défaut : **tofu s'il est présent**, sinon terraform |

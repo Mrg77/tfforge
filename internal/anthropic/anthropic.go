@@ -25,10 +25,18 @@ import (
 const (
 	defaultBaseURL = "https://api.anthropic.com/v1/messages"
 	apiVersion     = "2023-06-01"
-	// Default model: Sonnet 4.5 — a strong, cost-efficient choice for an agent
-	// that makes many tool-use round trips (you pay per token). Override with
-	// TFFORGE_MODEL, e.g. claude-opus-4-8 for the most capable reasoning.
-	defaultModel = "claude-sonnet-4-5"
+	// Default model. Sonnet is the right default for an AGENT: it makes many
+	// tool-use round trips and you pay for each one, so capability per token
+	// matters more than raw capability.
+	//
+	// The one-shot commands are the opposite trade. `--explain` and `fix` make a
+	// single call and produce code someone will apply, so the judgement is worth
+	// more than the saving — on a real report that call costs cents either way.
+	// Override per run:
+	//
+	//	TFFORGE_MODEL=claude-opus-5 tfforge audit . --explain
+	//	TFFORGE_MODEL=claude-haiku-4-5 tfforge "<cheap exploratory task>"
+	defaultModel = "claude-sonnet-5"
 )
 
 // Client talks to the Messages API. Zero value is not usable; use New.

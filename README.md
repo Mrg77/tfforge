@@ -168,7 +168,10 @@ secure and gate with tfforge.
   **budget** (`TFFORGE_MAX_COST`) stops the run before it exceeds a ceiling —
   FinOps for agents. The agent is also tuned to spend fewer tokens: it edits
   surgically instead of rewriting files, plans once, and keeps prose short; and
-  `TFFORGE_MODEL=claude-haiku-4-5` runs it ~3× cheaper.
+  `TFFORGE_MODEL=claude-haiku-4-5` runs it ~3× cheaper. The reverse trade is
+  worth making for the one-shot commands: `--explain` and `fix` make a single
+  call and produce code a human will apply, so
+  `TFFORGE_MODEL=claude-opus-5` buys better judgement for cents.
 - **A CI mode — no LLM.** `tfforge scan <dir> [--json] [--fail-on <sev>]` runs
   the deterministic security analysis *only* (no API key, no tokens) and **exits
   non-zero** when findings meet the threshold — so the same security brain the
@@ -257,7 +260,7 @@ the plan parser (replace both orders, big-plan truncation), and cost/audit.
 | Env var | Effect |
 |---|---|
 | `ANTHROPIC_API_KEY` | required for the agent — the API key (billed per token). Not needed for `scan` or `audit` (only `audit --explain` uses it). |
-| `TFFORGE_MODEL` | override the model (default `claude-sonnet-4-5`; `claude-haiku-4-5` is ~3× cheaper) |
+| `TFFORGE_MODEL` | override the model (default `claude-sonnet-5`; `claude-opus-5` for `--explain` and `fix`, `claude-haiku-4-5` ~3× cheaper) |
 | `TFFORGE_MAX_COST` | stop the run before it exceeds this USD budget (e.g. `0.50`) |
 | `TFFORGE_AUDIT` | `off` to disable the audit file, or a path to redirect it |
 | `TFFORGE_TF_BINARY` | force the CLI to drive (`tofu` / `terraform` / a path). Default: **tofu if present**, else terraform |
