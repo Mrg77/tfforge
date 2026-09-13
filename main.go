@@ -86,6 +86,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  tfforge audit <repo> [--json]    prioritized health report of an EXISTING repo, no LLM")
 		fmt.Fprintln(os.Stderr, "  tfforge scan <dir> [--json]      deterministic security scan of one dir, no LLM — gates CI")
 		fmt.Fprintln(os.Stderr, "  tfforge drift <dir> [--markdown] detect drift (tofu plan) + unmanaged cloud resources, no LLM")
+		fmt.Fprintln(os.Stderr, "  tfforge mcp [dir]                serve the read-only checks to an assistant (MCP, stdio)")
 		fmt.Fprintln(os.Stderr, "  tfforge version")
 		os.Exit(2)
 	}
@@ -106,6 +107,10 @@ func main() {
 		// Autonomous remediation: the agent scans + fixes + re-scans, HEADLESS and
 		// guarded (no apply/plan/destroy in its toolset). For CI / pre-commit.
 		os.Exit(runFix(os.Args[2:]))
+	case "mcp":
+		// Serve the read-only checks to an assistant over stdio. fix, apply and
+		// destroy stay behind the CLI, where the policy guard runs.
+		os.Exit(runMCP(os.Args[2:]))
 	case "drift":
 		// Runtime check: has anything changed outside Terraform (drift), and are
 		// there cloud resources not in the state (unmanaged)? Deterministic, no LLM.
