@@ -225,8 +225,16 @@ have installed tfforge too. Claude Code asks for approval the first time it sees
 a `.mcp.json` it has not been shown before, so a cloned repository cannot start a
 process behind your back. Check it with `claude mcp list`, or `/mcp` in session.
 
-Exposed: `terraform_scan, terraform_audit` — read-only, free, and safe to call
-repeatedly.
+Two tools are exposed, both read-only, free, and safe to call repeatedly:
+
+| Tool | Argument | What it covers |
+|---|---|---|
+| `terraform_scan` | `dir` (optional) — one directory, relative to the root | **That directory only.** It does not descend, so pointing it at a tree of modules returns nothing. |
+| `terraform_audit` | `dir` (optional) — the tree to walk | **The whole tree**, worst finding first, with a count and a max severity. |
+
+Call `terraform_audit` for "what is wrong with this repository", and
+`terraform_scan` when one directory is in question. Omitting the argument is the
+common case: both default to the root the server was started with.
 
 **Not exposed: `fix`, `apply`, the agent, anything that writes.** An MCP server is
 driven by a model, usually without a human approving each call. Exposing a tool
