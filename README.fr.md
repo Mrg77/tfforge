@@ -234,6 +234,46 @@ go build -o tfforge .
 Chaque run affiche un résumé : `run summary · N turns · … tokens · M tool call(s)
 (K denied) · ~$cost`. Scanners optionnels : `opsforge install checkov` (ou trivy).
 
+## En serveur MCP
+
+`tfforge mcp [racine]` sert les contrôles déterministes via le Model Context
+Protocol : un assistant les appelle directement au lieu de lancer un shell et de
+parser du texte. `racine` est le dossier pris par défaut — omets-le pour le
+dossier courant.
+
+Installe d'abord le binaire (voir plus haut) : le serveur *est* ce binaire, il n'y
+a rien d'autre à télécharger, et surtout pas le dépôt. Puis, depuis le dépôt à
+analyser :
+
+```sh
+claude mcp add -s project tfforge -- tfforge mcp
+```
+
+ce qui écrit `.mcp.json` à la racine du dépôt :
+
+```json
+{
+  "mcpServers": {
+    "tfforge": { "command": "tfforge", "args": ["mcp"] }
+  }
+}
+```
+
+Commite ce fichier et toute l'équipe a les mêmes outils — à condition d'avoir
+installé tfforge aussi. Claude Code demande une approbation la première fois qu'il
+voit un `.mcp.json` qu'on ne lui a pas encore montré : un dépôt cloné ne peut donc
+pas lancer un processus dans ton dos. Vérifie avec `claude mcp list`, ou `/mcp`
+en session.
+
+Exposé : `terraform_scan, terraform_audit` — lecture seule, gratuit, sans effet de bord même appelé
+en boucle.
+
+**Non exposé : `fix`, `apply`, l'agent, tout ce qui écrit.** Un serveur MCP est piloté par un modèle,
+le plus souvent sans qu'un humain approuve chaque appel. Exposer un outil qui
+écrit reviendrait à donner à un agent la capacité que les gardes existent
+justement pour retenir, et par un canal où la politique ne s'exécute jamais. Le
+serveur n'offre que ce qui ne change rien.
+
 ## Tests
 
 Pas besoin de clé API ni de réseau — le client du modèle est simulé, la logique

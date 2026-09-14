@@ -196,6 +196,44 @@ go build -o tfforge .
 The script picks the right binary for your OS/arch and drops it in `~/.local/bin`
 (override with `TFFORGE_INSTALL_DIR`, pin a version with `TFFORGE_VERSION=v0.1.0`).
 
+## As an MCP server
+
+`tfforge mcp [root]` serves the deterministic checks over the Model Context
+Protocol, so an assistant can call them directly instead of shelling out and
+parsing text. `root` is the directory the tools default to — omit it for the
+current directory.
+
+Install the binary first (see above); the server is that binary, there is nothing
+else to fetch. Then, from the repository you want analysed:
+
+```sh
+claude mcp add -s project tfforge -- tfforge mcp
+```
+
+which writes `.mcp.json` at the repository root:
+
+```json
+{
+  "mcpServers": {
+    "tfforge": { "command": "tfforge", "args": ["mcp"] }
+  }
+}
+```
+
+Commit that file and everyone on the repo gets the same tools — provided they
+have installed tfforge too. Claude Code asks for approval the first time it sees
+a `.mcp.json` it has not been shown before, so a cloned repository cannot start a
+process behind your back. Check it with `claude mcp list`, or `/mcp` in session.
+
+Exposed: `terraform_scan, terraform_audit` — read-only, free, and safe to call
+repeatedly.
+
+**Not exposed: `fix`, `apply`, the agent, anything that writes.** An MCP server is
+driven by a model, usually without a human approving each call. Exposing a tool
+that edits files would hand an agent the capability the guards exist to withhold,
+and through a channel where the policy never runs. The server offers what changes
+nothing.
+
 ## Run it
 
 ```sh
